@@ -61,11 +61,14 @@ def _rational_to_float(value: object) -> float | None:
     return None
 
 
-def _dms_to_decimal(coordinate: object) -> float | None:
+def _dms_to_decimal(coordinate: object, ref: str | None = None) -> float | None:
     """Convert GPS degrees/minutes/seconds rationals to decimal degrees.
 
-    The EXIF GPS coordinate is stored as three rational values:
-    (degrees, minutes, seconds).
+    The EXIF GPS coordinate is stored as three **positive** rational values
+    (degrees, minutes, seconds) with the sign conveyed by the ref tag
+    (*N*/*S* for latitude, *E*/*W* for longitude).
+
+    When *ref* is ``"S"`` (south) or ``"W"`` (west), the result is negated.
     """
     if not isinstance(coordinate, tuple) or len(coordinate) != 3:
         return None
@@ -77,7 +80,12 @@ def _dms_to_decimal(coordinate: object) -> float | None:
     if d is None or m is None or s is None:
         return None
 
-    return d + m / 60.0 + s / 3600.0
+    decimal = d + m / 60.0 + s / 3600.0
+
+    if ref in ("S", "W"):
+        decimal = -decimal
+
+    return decimal
 
 
 def _parse_xp_keywords(value: object) -> list[str] | None:
@@ -141,7 +149,7 @@ def _parse_gps_data(gps_data: dict) -> GpsInfo | None:
             gps.latitude_ref = str(value).strip() if value else None
 
         elif tag_name == "GPSLatitude":
-            lat = _dms_to_decimal(value)
+            lat = _dms_to_decimal(value, ref=gps.latitude_ref)
             if lat is not None:
                 gps.latitude = lat
 
@@ -151,7 +159,7 @@ def _parse_gps_data(gps_data: dict) -> GpsInfo | None:
             gps.longitude_ref = str(value).strip() if value else None
 
         elif tag_name == "GPSLongitude":
-            lon = _dms_to_decimal(value)
+            lon = _dms_to_decimal(value, ref=gps.longitude_ref)
             if lon is not None:
                 gps.longitude = lon
 

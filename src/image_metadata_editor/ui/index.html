@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Metadata Editor</title>
+
+    <!-- Leaflet CSS -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <!-- Leaflet JS -->
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+
+    <style>
+      /* ── Reset & base ─────────────────────────────────────────────── */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+          Cantarell, "Helvetica Neue", sans-serif;
+        background: #f4f5f7;
+        color: #1a1a2e;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ── Header ──────────────────────────────────────────────────── */
+      header {
+        background: #1a1a2e;
+        color: #fff;
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+      }
+      header h1 {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+      .file-selector {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .file-selector label {
+        cursor: pointer;
+        background: #e94560;
+        color: #fff;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+      .file-selector label:hover {
+        background: #d63851;
+      }
+      .file-selector input[type="file"] {
+        display: none;
+      }
+      .file-selector .file-path {
+        font-size: 13px;
+        color: #aaa;
+        max-width: 360px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-selector .load-btn {
+        background: #0f3460;
+        color: #fff;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .file-selector .load-btn:hover {
+        background: #16213e;
+      }
+
+      /* ── Main layout ──────────────────────────────────────────────── */
+      .main-grid {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr;
+        gap: 0;
+        overflow: hidden;
+      }
+
+      /* ── Left panel: Metadata form ────────────────────────────────── */
+      .metadata-panel {
+        background: #fff;
+        padding: 24px;
+        overflow-y: auto;
+        border-right: 1px solid #e0e0e0;
+      }
+      .metadata-panel h2 {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 20px;
+        color: #1a1a2e;
+      }
+      .form-group {
+        margin-bottom: 16px;
+      }
+      .form-group label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: #555;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .form-group input,
+      .form-group textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d0d0d0;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: inherit;
+        color: #1a1a2e;
+        background: #fafafa;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+      }
+      .form-group input:focus,
+      .form-group textarea:focus {
+        outline: none;
+        border-color: #0f3460;
+        background: #fff;
+      }
+      .form-group textarea {
+        resize: vertical;
+        min-height: 60px;
+      }
+      .form-group input:disabled,
+      .form-group textarea:disabled {
+        background: #f0f0f0;
+        color: #999;
+        cursor: not-allowed;
+      }
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .form-section {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid #e8e8e8;
+      }
+      .form-section h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f3460;
+        margin-bottom: 12px;
+      }
+      .keywords-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .keyword-tag {
+        background: #e8edf5;
+        color: #0f3460;
+        padding: 4px 10px;
+        border-radius: 14px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .keyword-tag .remove-keyword {
+        cursor: pointer;
+        font-weight: bold;
+        color: #e94560;
+        font-size: 14px;
+        line-height: 1;
+      }
+      .keyword-tag .remove-keyword:hover {
+        color: #c7304a;
+      }
+      .add-keyword-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .add-keyword-row input {
+        flex: 1;
+      }
+      .add-keyword-row button {
+        background: #0f3460;
+        color: #fff;
+        border: none;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .add-keyword-row button:hover {
+        background: #16213e;
+      }
+
+      .save-bar {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid #e8e8e8;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+      }
+      .save-bar button {
+        padding: 10px 24px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        transition: background 0.2s;
+      }
+      .save-bar .btn-save {
+        background: #e94560;
+        color: #fff;
+      }
+      .save-bar .btn-save:hover {
+        background: #d63851;
+      }
+      .save-bar .btn-reset {
+        background: #f0f0f0;
+        color: #555;
+      }
+      .save-bar .btn-reset:hover {
+        background: #e0e0e0;
+      }
+      .save-bar .btn-save:disabled,
+      .save-bar .btn-reset:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* ── Right panel: Image preview + Map ─────────────────────────── */
+      .right-panel {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .image-preview {
+        flex: 0 0 auto;
+        height: 45%;
+        background: #1a1a2e;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+      }
+      .image-preview img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+      .image-preview .placeholder {
+        color: #666;
+        font-size: 14px;
+        text-align: center;
+        padding: 20px;
+      }
+      .image-preview .placeholder strong {
+        display: block;
+        font-size: 16px;
+        color: #888;
+        margin-bottom: 4px;
+      }
+
+      #map {
+        flex: 1;
+        min-height: 0;
+      }
+
+      /* ── Status toast ─────────────────────────────────────────────── */
+      .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        padding: 12px 20px;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0;
+        transform: translateY(12px);
+        transition:
+          opacity 0.3s,
+          transform 0.3s;
+        pointer-events: none;
+        z-index: 9999;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .toast.success {
+        background: #2d6a4f;
+      }
+      .toast.error {
+        background: #e94560;
+      }
+      .toast.info {
+        background: #0f3460;
+      }
+
+      /* ── Responsive ───────────────────────────────────────────────── */
+      @media (max-width: 900px) {
+        .main-grid {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto 1fr;
+        }
+        .metadata-panel {
+          border-right: none;
+          border-bottom: 1px solid #e0e0e0;
+          max-height: 50vh;
+        }
+        .image-preview {
+          height: 200px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ─── Header ─────────────────────────────────────────────────────── -->
+    <header>
+      <h1>📷 Image Metadata Editor</h1>
+      <div class="file-selector">
+        <span class="file-path" id="filePath">No file selected</span>
+        <label>
+          Browse…
+          <input type="file" id="fileInput" accept="image/*" />
+        </label>
+        <button class="load-btn" id="loadDefaultBtn">
+          Load testing-image.jpeg
+        </button>
+      </div>
+    </header>
+
+    <!-- ─── Main Grid ──────────────────────────────────────────────────── -->
+    <div class="main-grid">
+      <!-- Left: Metadata Form -->
+      <div class="metadata-panel" id="metadataPanel">
+        <h2>Metadata</h2>
+
+        <div class="form-group">
+          <label for="inputTitle">Title</label>
+          <input
+            type="text"
+            id="inputTitle"
+            placeholder="Image title…"
+            disabled
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="inputDescription">Description</label>
+          <textarea
+            id="inputDescription"
+            placeholder="Description / caption…"
+            disabled
+          ></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Keywords</label>
+          <div class="keywords-container" id="keywordsContainer"></div>
+          <div class="add-keyword-row">
+            <input
+              type="text"
+              id="inputKeyword"
+              placeholder="Add a keyword…"
+              disabled
+            />
+            <button id="addKeywordBtn" disabled>Add</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="inputDateTaken">Date Taken</label>
+          <input type="datetime-local" id="inputDateTaken" disabled />
+        </div>
+
+        <div class="form-section">
+          <h3>🌐 GPS Coordinates</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="inputLatitude">Latitude</label>
+              <input
+                type="number"
+                id="inputLatitude"
+                step="any"
+                placeholder="e.g. 48.8566"
+                disabled
+              />
+            </div>
+            <div class="form-group">
+              <label for="inputLongitude">Longitude</label>
+              <input
+                type="number"
+                id="inputLongitude"
+                step="any"
+                placeholder="e.g. 2.3522"
+                disabled
+              />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="inputAltitude">Altitude (m)</label>
+              <input
+                type="number"
+                id="inputAltitude"
+                step="any"
+                placeholder="e.g. 35.0"
+                disabled
+              />
+            </div>
+            <div class="form-group">
+              <label for="inputAltitudeRef">Altitude Ref</label>
+              <select id="inputAltitudeRef" disabled>
+                <option value="">—</option>
+                <option value="0">Above sea level</option>
+                <option value="1">Below sea level</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="save-bar">
+          <button class="btn-reset" id="resetBtn" disabled>Reset</button>
+          <button class="btn-save" id="saveBtn" disabled>Save Changes</button>
+        </div>
+      </div>
+
+      <!-- Right: Image Preview + Map -->
+      <div class="right-panel">
+        <div class="image-preview" id="imagePreview">
+          <div class="placeholder">
+            <strong>No image loaded</strong>
+            Select an image file to view and edit its metadata
+          </div>
+        </div>
+        <div id="map"></div>
+      </div>
+    </div>
+
+    <!-- ─── Toast ──────────────────────────────────────────────────────── -->
+    <div class="toast" id="toast"></div>
+
+    <!-- ─── JavaScript ─────────────────────────────────────────────────── -->
+    <script>
+      (function () {
+        "use strict";
+
+        // ── State ────────────────────────────────────────────────────
+        const state = {
+          currentFile: null, // File object
+          currentFilePath: "", // Display path
+          originalMetadata: null, // Snapshot for Reset
+          currentMetadata: null, // Currently displayed
+        };
+
+        // ── DOM refs ─────────────────────────────────────────────────
+        const $ = (sel) => document.querySelector(sel);
+        const fileInput = $("#fileInput");
+        const filePath = $("#filePath");
+        const loadDefaultBtn = $("#loadDefaultBtn");
+        const imgPreview = $("#imagePreview");
+
+        const inputTitle = $("#inputTitle");
+        const inputDescription = $("#inputDescription");
+        const keywordsContainer = $("#keywordsContainer");
+        const inputKeyword = $("#inputKeyword");
+        const addKeywordBtn = $("#addKeywordBtn");
+        const inputDateTaken = $("#inputDateTaken");
+        const inputLatitude = $("#inputLatitude");
+        const inputLongitude = $("#inputLongitude");
+        const inputAltitude = $("#inputAltitude");
+        const inputAltitudeRef = $("#inputAltitudeRef");
+        const resetBtn = $("#resetBtn");
+        const saveBtn = $("#saveBtn");
+
+        const toastEl = $("#toast");
+
+        // ── Leaflet map ──────────────────────────────────────────────
+        let map = null;
+        let marker = null;
+
+        function initMap() {
+          map = L.map("map").setView([20, 0], 2);
+          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution:
+              '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 19,
+          }).addTo(map);
+
+          map.on("click", function (e) {
+            const { lat, lng } = e.latlng;
+            inputLatitude.value = lat.toFixed(6);
+            inputLongitude.value = lng.toFixed(6);
+
+            if (marker) {
+              marker.setLatLng([lat, lng]);
+            } else {
+              marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+              marker.on("dragend", function (ev) {
+                const pos = ev.target.getLatLng();
+                inputLatitude.value = pos.lat.toFixed(6);
+                inputLongitude.value = pos.lng.toFixed(6);
+                updateMarkerPopup(pos.lat, pos.lng);
+              });
+            }
+            updateMarkerPopup(lat, lng, inputAltitude.value);
+          });
+        }
+
+        function updateMap(lat, lon, alt) {
+          if (!map) return;
+          if (lat == null || lon == null) {
+            // No GPS data – reset to world view
+            map.setView([20, 0], 2);
+            if (marker) {
+              marker.remove();
+              marker = null;
+            }
+            return;
+          }
+
+          const latNum = parseFloat(lat);
+          const lonNum = parseFloat(lon);
+
+          if (isNaN(latNum) || isNaN(lonNum)) {
+            return;
+          }
+
+          map.setView([latNum, lonNum], 15);
+
+          if (marker) {
+            marker.setLatLng([latNum, lonNum]);
+          } else {
+            marker = L.marker([latNum, lonNum], { draggable: true }).addTo(map);
+            marker.on("dragend", function (e) {
+              const pos = e.target.getLatLng();
+              inputLatitude.value = pos.lat.toFixed(6);
+              inputLongitude.value = pos.lng.toFixed(6);
+              updateMarkerPopup(pos.lat, pos.lng);
+            });
+          }
+
+          updateMarkerPopup(latNum, lonNum, alt);
+        }
+
+        function updateMarkerPopup(lat, lon, alt) {
+          if (!marker) return;
+          let popupText = `Lat: ${parseFloat(lat).toFixed(6)}<br>Lng: ${parseFloat(lon).toFixed(6)}`;
+          if (alt != null && alt !== "" && !isNaN(parseFloat(alt))) {
+            popupText += `<br>Alt: ${parseFloat(alt).toFixed(1)} m`;
+          } else {
+            popupText += `<br>Alt: —`;
+          }
+          marker.bindPopup(popupText).openPopup();
+        }
+
+        // ── Toast ────────────────────────────────────────────────────
+        let toastTimer = null;
+
+        function showToast(message, type) {
+          type = type || "info";
+          toastEl.textContent = message;
+          toastEl.className = "toast " + type + " show";
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(() => {
+            toastEl.classList.remove("show");
+          }, 3000);
+        }
+
+        // ── Form helpers ─────────────────────────────────────────────
+        function setFormEnabled(enabled) {
+          const fields = [
+            inputTitle,
+            inputDescription,
+            inputKeyword,
+            inputDateTaken,
+            inputLatitude,
+            inputLongitude,
+            inputAltitude,
+            inputAltitudeRef,
+            addKeywordBtn,
+            resetBtn,
+            saveBtn,
+          ];
+          fields.forEach((el) => {
+            el.disabled = !enabled;
+          });
+          // Re-render keyword tags in enabled/disabled style
+          renderKeywords();
+        }
+
+        function getFormMetadata() {
+          const keywordsEls =
+            keywordsContainer.querySelectorAll(".keyword-tag");
+          const keywords = Array.from(keywordsEls).map(
+            (el) => el.querySelector(".keyword-text").textContent,
+          );
+
+          const lat = inputLatitude.value
+            ? parseFloat(inputLatitude.value)
+            : null;
+          const lon = inputLongitude.value
+            ? parseFloat(inputLongitude.value)
+            : null;
+
+          // Derive GPS refs from coordinate signs
+          const latitude_ref = lat !== null ? (lat >= 0 ? "N" : "S") : null;
+          const longitude_ref = lon !== null ? (lon >= 0 ? "E" : "W") : null;
+
+          // Build gps object — null if no fields are set
+          const hasGps =
+            lat !== null ||
+            lon !== null ||
+            inputAltitude.value !== "" ||
+            inputAltitudeRef.value !== "";
+
+          return {
+            title: inputTitle.value || null,
+            description: inputDescription.value || null,
+            keywords: keywords.length ? keywords : null,
+            date_taken: inputDateTaken.value
+              ? inputDateTaken.value + ":00"
+              : null,
+            gps: hasGps
+              ? {
+                  latitude_ref: latitude_ref,
+                  latitude: lat,
+                  longitude_ref: longitude_ref,
+                  longitude: lon,
+                  altitude: inputAltitude.value
+                    ? parseFloat(inputAltitude.value)
+                    : null,
+                  altitude_ref: inputAltitudeRef.value
+                    ? parseInt(inputAltitudeRef.value)
+                    : null,
+                }
+              : null,
+          };
+        }
+
+        function setFormMetadata(meta) {
+          inputTitle.value = meta.title || "";
+          inputDescription.value = meta.description || "";
+          renderKeywords(meta.keywords || []);
+          inputKeyword.value = "";
+
+          // Date: convert from "YYYY:MM:DD HH:MM:SS" or ISO to datetime-local
+          if (meta.date_taken) {
+            const d = new Date(meta.date_taken);
+            if (!isNaN(d.getTime())) {
+              const pad = (n) => String(n).padStart(2, "0");
+              inputDateTaken.value =
+                d.getFullYear() +
+                "-" +
+                pad(d.getMonth() + 1) +
+                "-" +
+                pad(d.getDate()) +
+                "T" +
+                pad(d.getHours()) +
+                ":" +
+                pad(d.getMinutes());
+            } else {
+              inputDateTaken.value = "";
+            }
+          } else {
+            inputDateTaken.value = "";
+          }
+
+          const gps = meta.gps || {};
+          inputLatitude.value = gps.latitude != null ? gps.latitude : "";
+          inputLongitude.value = gps.longitude != null ? gps.longitude : "";
+          inputAltitude.value = gps.altitude != null ? gps.altitude : "";
+          inputAltitudeRef.value =
+            gps.altitude_ref != null ? String(gps.altitude_ref) : "";
+
+          updateMap(
+            inputLatitude.value,
+            inputLongitude.value,
+            inputAltitude.value,
+          );
+        }
+
+        // ── Keywords ─────────────────────────────────────────────────
+        function renderKeywords(keywords) {
+          if (keywords !== undefined) {
+            keywordsContainer.innerHTML = "";
+            (keywords || []).forEach((kw) => addKeywordTag(kw));
+            return;
+          }
+          // Toggle disabled state on existing tags (no re-render)
+          const disabled = inputKeyword.disabled;
+          keywordsContainer
+            .querySelectorAll(".remove-keyword")
+            .forEach((btn) => {
+              btn.style.display = disabled ? "none" : "inline";
+            });
+        }
+
+        function addKeywordTag(keyword) {
+          const tag = document.createElement("span");
+          tag.className = "keyword-tag";
+          tag.innerHTML =
+            `<span class="keyword-text">${escapeHtml(keyword)}</span>` +
+            `<span class="remove-keyword" data-keyword="${escapeHtml(keyword)}">&times;</span>`;
+          tag
+            .querySelector(".remove-keyword")
+            .addEventListener("click", function () {
+              tag.remove();
+            });
+          keywordsContainer.appendChild(tag);
+        }
+
+        function escapeHtml(str) {
+          const div = document.createElement("div");
+          div.textContent = str;
+          return div.innerHTML;
+        }
+
+        // ── Load metadata from image via API ───────────────────────
+        async function loadMetadataForFile(filePathDisplay) {
+          filePath.textContent = filePathDisplay;
+
+          try {
+            const response = await fetch("/api/metadata");
+            if (!response.ok) {
+              throw new Error(
+                "Failed to load metadata: " + response.statusText,
+              );
+            }
+            const metadata = await response.json();
+
+            state.originalMetadata = JSON.parse(JSON.stringify(metadata));
+            state.currentMetadata = JSON.parse(JSON.stringify(metadata));
+            setFormMetadata(metadata);
+            setFormEnabled(true);
+            showToast(`Loaded: ${filePathDisplay}`, "info");
+          } catch (err) {
+            showToast("Error loading metadata: " + err.message, "error");
+          }
+        }
+
+        // ── Load default testing image ──────────────────────────────
+        async function loadDefaultImage() {
+          try {
+            // Show the image preview from the server
+            imgPreview.innerHTML = `<img src="/testing-image.jpeg" alt="testing-image.jpeg" />`;
+            await loadMetadataForFile("testing-image.jpeg");
+          } catch (err) {
+            showToast("Failed to load default image: " + err.message, "error");
+          }
+        }
+
+        // ── Save / Reset ─────────────────────────────────────────────
+        async function saveMetadata() {
+          const metadata = getFormMetadata();
+          try {
+            const response = await fetch("/api/metadata", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(metadata),
+            });
+            if (!response.ok) {
+              throw new Error("Failed to save: " + response.statusText);
+            }
+            const updated = await response.json();
+            state.originalMetadata = JSON.parse(JSON.stringify(updated));
+            state.currentMetadata = JSON.parse(JSON.stringify(updated));
+            setFormMetadata(updated);
+            showToast("Metadata saved successfully", "success");
+          } catch (err) {
+            showToast("Error saving metadata: " + err.message, "error");
+          }
+        }
+
+        function resetMetadata() {
+          if (state.originalMetadata) {
+            state.currentMetadata = JSON.parse(
+              JSON.stringify(state.originalMetadata),
+            );
+            setFormMetadata(state.originalMetadata);
+            showToast("Reset to original values", "info");
+          }
+        }
+
+        // ── Event listeners ─────────────────────────────────────────
+        // Both file input and default button reload the test image
+        // (the API is currently hardcoded to testing-image.jpeg)
+        fileInput.addEventListener("change", function () {
+          if (this.files && this.files[0]) {
+            // Show the selected file as a preview
+            const reader = new FileReader();
+            reader.onload = function (e) {
+              imgPreview.innerHTML = `<img src="${e.target.result}" alt="Preview" />`;
+            };
+            reader.readAsDataURL(this.files[0]);
+            // Metadata is always loaded from testing-image.jpeg via the API
+            loadMetadataForFile(this.files[0].name);
+          }
+          this.value = "";
+        });
+
+        loadDefaultBtn.addEventListener("click", loadDefaultImage);
+
+        addKeywordBtn.addEventListener("click", function () {
+          const kw = inputKeyword.value.trim();
+          if (kw) {
+            const existing =
+              keywordsContainer.querySelectorAll(".keyword-text");
+            const exists = Array.from(existing).some(
+              (el) => el.textContent.toLowerCase() === kw.toLowerCase(),
+            );
+            if (!exists) {
+              addKeywordTag(kw);
+            }
+            inputKeyword.value = "";
+          }
+        });
+
+        inputKeyword.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addKeywordBtn.click();
+          }
+        });
+
+        resetBtn.addEventListener("click", resetMetadata);
+
+        saveBtn.addEventListener("click", saveMetadata);
+
+        // ── Sync map marker when GPS inputs change ───────────────────
+        function onGpsInputChange() {
+          const lat = inputLatitude.value;
+          const lon = inputLongitude.value;
+          if (lat && lon) {
+            const latNum = parseFloat(lat);
+            const lonNum = parseFloat(lon);
+            if (!isNaN(latNum) && !isNaN(lonNum)) {
+              if (marker) {
+                marker.setLatLng([latNum, lonNum]);
+              } else {
+                marker = L.marker([latNum, lonNum], { draggable: true }).addTo(
+                  map,
+                );
+                marker.on("dragend", function (ev) {
+                  const pos = ev.target.getLatLng();
+                  inputLatitude.value = pos.lat.toFixed(6);
+                  inputLongitude.value = pos.lng.toFixed(6);
+                  updateMarkerPopup(pos.lat, pos.lng);
+                });
+              }
+              map.setView([latNum, lonNum], Math.max(map.getZoom(), 10));
+              updateMarkerPopup(latNum, lonNum, inputAltitude.value);
+            }
+          }
+        }
+
+        inputLatitude.addEventListener("input", onGpsInputChange);
+        inputLongitude.addEventListener("input", onGpsInputChange);
+        inputAltitude.addEventListener("input", function () {
+          const lat = inputLatitude.value;
+          const lon = inputLongitude.value;
+          if (lat && lon && marker) {
+            updateMarkerPopup(parseFloat(lat), parseFloat(lon), this.value);
+          }
+        });
+
+        // ── Init ─────────────────────────────────────────────────────
+        initMap();
+
+        // Auto-load the default image on page load
+        document.addEventListener("DOMContentLoaded", function () {
+          loadDefaultImage();
+        });
+      })();
+    </script>
+  </body>
+</html>

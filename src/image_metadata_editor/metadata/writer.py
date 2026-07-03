@@ -35,12 +35,19 @@ _GPS_ALTITUDE = 0x0006
 def _decimal_to_dms(value: float) -> tuple[tuple[int, int], ...]:
     """Convert decimal degrees to an EXIF DMS rational tuple.
 
+    EXIF always stores DMS components as **positive** values; the sign is
+    conveyed separately via the latitude/longitude ref tag (N/S, E/W).
+    We therefore take ``abs(value)`` here so that negative coordinates
+    (e.g. -33.8688) produce ``((33, 1), (52, 1), (756, 100))`` rather than
+    negative degree components, which are invalid in EXIF.
+
     Returns ``((D, 1), (M, 1), (S, 100))`` so that seconds are stored
     with two-decimal-place precision.
     """
+    value = abs(value)
     degrees = int(value)
-    minutes = int(abs(value - degrees) * 60)
-    seconds = (abs(value - degrees) - minutes / 60) * 3600
+    minutes = int((value - degrees) * 60)
+    seconds = (value - degrees - minutes / 60) * 3600
     seconds_num = int(round(seconds * 100))
     seconds_den = 100
     return ((degrees, 1), (minutes, 1), (seconds_num, seconds_den))
