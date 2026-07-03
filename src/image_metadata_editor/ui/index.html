@@ -1071,23 +1071,23 @@
           try {
             const dirHandle = await window.showDirectoryPicker();
             const items = [];
+            // dirHandle.entries() returns only direct children (non-recursive).
             for await (const [name, entry] of dirHandle.entries()) {
-              if (entry.kind === "file") {
-                const ext = name.toLowerCase().split(".").pop();
-                if (
-                  [
-                    "jpg",
-                    "jpeg",
-                    "png",
-                    "tif",
-                    "tiff",
-                    "webp",
-                    "heic",
-                    "heif",
-                  ].includes(ext)
-                ) {
-                  items.push({ file: await entry.getFile(), handle: entry });
-                }
+              if (entry.kind !== "file") continue; // skip directories
+              const ext = name.toLowerCase().split(".").pop();
+              if (
+                [
+                  "jpg",
+                  "jpeg",
+                  "png",
+                  "tif",
+                  "tiff",
+                  "webp",
+                  "heic",
+                  "heif",
+                ].includes(ext)
+              ) {
+                items.push({ file: await entry.getFile(), handle: entry });
               }
             }
             if (items.length) {
