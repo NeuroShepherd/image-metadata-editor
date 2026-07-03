@@ -447,14 +447,6 @@
                 disabled
               />
             </div>
-            <div class="form-group">
-              <label for="inputAltitudeRef">Altitude Ref</label>
-              <select id="inputAltitudeRef" disabled>
-                <option value="">—</option>
-                <option value="0">Above sea level</option>
-                <option value="1">Below sea level</option>
-              </select>
-            </div>
           </div>
         </div>
 
@@ -508,7 +500,6 @@
         const inputLatitude = $("#inputLatitude");
         const inputLongitude = $("#inputLongitude");
         const inputAltitude = $("#inputAltitude");
-        const inputAltitudeRef = $("#inputAltitudeRef");
         const resetBtn = $("#resetBtn");
         const saveBtn = $("#saveBtn");
 
@@ -539,7 +530,7 @@
                 const pos = ev.target.getLatLng();
                 inputLatitude.value = pos.lat.toFixed(6);
                 inputLongitude.value = pos.lng.toFixed(6);
-                updateMarkerPopup(pos.lat, pos.lng);
+                updateMarkerPopup(pos.lat, pos.lng, inputAltitude.value);
               });
             }
             updateMarkerPopup(lat, lng, inputAltitude.value);
@@ -575,7 +566,7 @@
               const pos = e.target.getLatLng();
               inputLatitude.value = pos.lat.toFixed(6);
               inputLongitude.value = pos.lng.toFixed(6);
-              updateMarkerPopup(pos.lat, pos.lng);
+              updateMarkerPopup(pos.lat, pos.lng, inputAltitude.value);
             });
           }
 
@@ -615,8 +606,6 @@
             inputDateTaken,
             inputLatitude,
             inputLongitude,
-            inputAltitude,
-            inputAltitudeRef,
             addKeywordBtn,
             resetBtn,
             saveBtn,
@@ -648,10 +637,7 @@
 
           // Build gps object — null if no fields are set
           const hasGps =
-            lat !== null ||
-            lon !== null ||
-            inputAltitude.value !== "" ||
-            inputAltitudeRef.value !== "";
+            lat !== null || lon !== null || inputAltitude.value !== "";
 
           return {
             title: inputTitle.value || null,
@@ -668,9 +654,6 @@
                   longitude: lon,
                   altitude: inputAltitude.value
                     ? parseFloat(inputAltitude.value)
-                    : null,
-                  altitude_ref: inputAltitudeRef.value
-                    ? parseInt(inputAltitudeRef.value)
                     : null,
                 }
               : null,
@@ -709,8 +692,6 @@
           inputLatitude.value = gps.latitude != null ? gps.latitude : "";
           inputLongitude.value = gps.longitude != null ? gps.longitude : "";
           inputAltitude.value = gps.altitude != null ? gps.altitude : "";
-          inputAltitudeRef.value =
-            gps.altitude_ref != null ? String(gps.altitude_ref) : "";
 
           updateMap(
             inputLatitude.value,
@@ -884,7 +865,7 @@
                   const pos = ev.target.getLatLng();
                   inputLatitude.value = pos.lat.toFixed(6);
                   inputLongitude.value = pos.lng.toFixed(6);
-                  updateMarkerPopup(pos.lat, pos.lng);
+                  updateMarkerPopup(pos.lat, pos.lng, inputAltitude.value);
                 });
               }
               map.setView([latNum, lonNum], Math.max(map.getZoom(), 10));
@@ -895,13 +876,6 @@
 
         inputLatitude.addEventListener("input", onGpsInputChange);
         inputLongitude.addEventListener("input", onGpsInputChange);
-        inputAltitude.addEventListener("input", function () {
-          const lat = inputLatitude.value;
-          const lon = inputLongitude.value;
-          if (lat && lon && marker) {
-            updateMarkerPopup(parseFloat(lat), parseFloat(lon), this.value);
-          }
-        });
 
         // ── Init ─────────────────────────────────────────────────────
         initMap();
