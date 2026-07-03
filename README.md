@@ -29,7 +29,7 @@ Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 # Clone the repo
-git clone <repo-url>
+git clone https://github.com/NeuroShepherd/image-metadata-editor
 cd image-metadata-editor
 
 # Install dependencies
