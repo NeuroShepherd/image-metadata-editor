@@ -634,7 +634,7 @@
         let marker = null;
 
         function initMap() {
-          map = L.map("map").setView([20, 0], 2);
+          map = L.map("map").setView([20, 0], 0);
           L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
             attribution:
               '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -674,7 +674,7 @@
           const latNum = parseFloat(lat);
           const lonNum = parseFloat(lon);
           if (isNaN(latNum) || isNaN(lonNum)) return;
-          map.setView([latNum, lonNum], 15);
+          map.setView([latNum, lonNum], 5);
           if (marker) {
             marker.setLatLng([latNum, lonNum]);
           } else {
@@ -1186,7 +1186,7 @@
                   updateMarkerPopup(pos.lat, pos.lng, inputAltitude.value);
                 });
               }
-              map.setView([latNum, lonNum], Math.max(map.getZoom(), 10));
+              map.setView([latNum, lonNum], Math.max(map.getZoom(), 5));
               updateMarkerPopup(latNum, lonNum, inputAltitude.value);
             }
           }
