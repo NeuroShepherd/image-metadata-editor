@@ -33,3 +33,9 @@ The editor aims to support **most EXIF features** across formats that support it
 - A web application can read in one or multiple files or a folder at a time that the user can flip through to edit metadata information.
   - This is hardcoded right now and files that are added are uploaded to an uploads/ folder currently.
 - Need to implement an API between the UI and the models and helpers described above that allows for direct reading/writing from the path of the image rather than creating copies of the image
+
+* Note: should have just used tkinter ttk for this project because there were significant limitations and frustrations with a browser-based approach
+  - firefox and safari don't support the spec for editing files on the system--just Chromium browsers
+    - kept updating the Created date because, well, technically a new file was being written by this process
+  - using an API ultimately is not necessary and was overkill for this project given that I didn't need a browser (but still nice to practice a bit)
+  - before switching some parts to tkinter in the api, this project would have only worked on Mac
