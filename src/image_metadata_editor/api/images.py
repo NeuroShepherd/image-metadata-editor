@@ -1,7 +1,5 @@
 """Image endpoints — list images in a directory and serve image files."""
 
-import json
-import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,75 +11,32 @@ _SUPPORTED_EXTENSIONS: set[str] = {
     ".jpg",".jpeg",".png",".tif",".tiff",".webp",".heic",".heif",
 }
 
-_SUPPORTED_UTIS = {
-    "public.jpeg",
-    "public.png",
-    "public.tiff",
-    "com.compuserve.gif",
-    "com.microsoft.bmp",
-}
-
-# ── Endpoints ─────────────────────────────────────────────────────────────
-
 
 @router.post("/dialog")
 def open_file_dialog(mode: str = Query("files", enum=["files", "folder"])):
-    """Open a native OS file/folder dialog and return absolute paths.
+    """Open a native OS file/folder dialog via tkinter and return absolute paths.
 
-    The server opens the dialog on the user's desktop — no browser
-    file picker limitations, fully server-driven.  On macOS this uses
-    osascript/AppleScript.
+    The dialog runs modally on the server — no browser file picker
+    limitations, cross-platform, fully server-driven.
     """
-    import platform
+    import tkinter as tk
+    from tkinter import filedialog
 
-    system = platform.system()
-    paths: list[str] = []
-
-    if system == "Darwin":
-        uti_list = ", ".join(f'"{u}"' for u in sorted(_SUPPORTED_UTIS))
+    root = tk.Tk()
+    root.withdraw()  # hide the empty tkinter window
+    try:
         if mode == "folder":
-            script = f'''
-                set theFolder to choose folder with prompt "Select a folder of images"
-                return POSIX path of theFolder
-            '''
+            p = filedialog.askdirectory(title="Select a folder of images")
+            paths = [p] if p else []
         else:
-            script = f'''
-                set theFiles to choose file with prompt "Select images" of type {{{uti_list}}} with multiple selections allowed
-                set paths to {{}}
-                repeat with f in theFiles
-                    set end of paths to POSIX path of f
-                end repeat
-                return paths
-            '''
-        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=120)
-        if result.returncode != 0:
-            if result.stderr and "User canceled" in result.stderr:
-                return []  # user cancelled
-            raise HTTPException(status_code=500, detail=f"File dialog failed: {result.stderr.strip()}")
-        raw = result.stdout.strip()
-        # osascript returns comma-separated list, possibly with trailing comma
-        paths = [p.strip() for p in raw.rstrip(",").split(", ") if p.strip()]
-    else:
-        # Fallback for other platforms: try tkinter
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            if mode == "folder":
-                p = filedialog.askdirectory(title="Select a folder of images")
-                if p:
-                    paths = [p]
-            else:
-                paths = list(filedialog.askopenfilenames(
-                    title="Select images",
-                    filetypes=[("Images", "*.jpg *.jpeg *.png *.tif *.tiff *.webp *.heic *.heif")],
-                ))
-            root.destroy()
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"File dialog failed: {exc}")
+            paths = list(filedialog.askopenfilenames(
+                title="Select images",
+                filetypes=[("Images", "*.jpg *.jpeg *.png *.tif *.tiff *.webp *.heic *.heif")],
+            ))
+    finally:
+        root.destroy()
 
-    return paths
+    return [p for p in paths if p]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
