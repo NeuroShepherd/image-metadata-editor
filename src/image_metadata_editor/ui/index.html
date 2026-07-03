@@ -314,7 +314,8 @@
       }
       .save-bar .btn-save:disabled,
       .save-bar .btn-reset:disabled,
-      .save-bar .btn-clear:disabled {
+      .save-bar .btn-clear:disabled,
+      .save-bar .btn-bulk:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }
@@ -405,6 +406,94 @@
       #map {
         flex: 1;
         min-height: 0;
+      }
+
+      /* ── Modal overlay ──────────────────────────────────────────── */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      }
+      .modal-overlay.show {
+        display: flex;
+      }
+      .modal {
+        background: #fff;
+        border-radius: 10px;
+        padding: 28px;
+        max-width: 440px;
+        width: 90%;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+      }
+      .modal h3 {
+        font-size: 16px;
+        margin-bottom: 12px;
+        color: #1a1a2e;
+      }
+      .modal p {
+        font-size: 13px;
+        color: #555;
+        line-height: 1.5;
+        margin-bottom: 20px;
+      }
+      .modal p strong {
+        color: #e94560;
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .modal-actions button {
+        padding: 9px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+      }
+      .modal-actions .btn-cancel {
+        background: #f0f0f0;
+        color: #555;
+      }
+      .modal-actions .btn-cancel:hover {
+        background: #e0e0e0;
+      }
+      .modal-actions .btn-confirm {
+        background: #e94560;
+        color: #fff;
+      }
+      .modal-actions .btn-confirm:hover {
+        background: #d63851;
+      }
+
+      /* ── Bulk edit banner ────────────────────────────────────────── */
+      .bulk-banner {
+        display: none;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        color: #856404;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 500;
+        border-radius: 6px;
+        margin-bottom: 16px;
+      }
+      .bulk-banner.show {
+        display: block;
+      }
+
+      /* ── Bulk edit button ────────────────────────────────────────── */
+      .btn-bulk {
+        background: #0f3460;
+        color: #fff;
+      }
+      .btn-bulk:hover {
+        background: #16213e;
       }
 
       /* ── Status toast ─────────────────────────────────────────────── */
@@ -562,8 +651,12 @@
         </div>
 
         <div class="save-bar">
+          <button class="btn-bulk" id="bulkEditBtn" disabled>Bulk Edit</button>
           <button class="btn-reset" id="resetBtn" disabled>Reset</button>
           <button class="btn-save" id="saveBtn" disabled>Save Changes</button>
+        </div>
+        <div class="bulk-banner" id="bulkBanner">
+          ⚡ Bulk edit mode active — changes apply to <strong>all loaded files</strong> (title excluded).
         </div>
       </div>
 
@@ -591,6 +684,27 @@
     <!-- ─── Toast ──────────────────────────────────────────────────────── -->
     <div class="toast" id="toast"></div>
 
+    <!-- ─── Bulk edit confirmation modal ───────────────────────────────── -->
+    <div class="modal-overlay" id="bulkModalOverlay">
+      <div class="modal">
+        <h3>⚠️ Bulk Edit Mode</h3>
+        <p>
+          You are about to edit <strong id="bulkFileCount">0</strong>
+          files simultaneously. Any changes you make to the metadata
+          fields below (except <strong>Title</strong>) will be applied
+          to <strong>every</strong> loaded image when you save.
+        </p>
+        <p>
+          Only use this mode if you are certain all images should share
+          these values.
+        </p>
+        <div class="modal-actions">
+          <button class="btn-cancel" id="bulkCancelBtn">Cancel</button>
+          <button class="btn-confirm" id="bulkConfirmBtn">Enter Bulk Edit</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ─── JavaScript ─────────────────────────────────────────────────── -->
     <script>
       (function () {
@@ -600,6 +714,7 @@
         const state = {
           images: [], // Array of {blobUrl, filename, originalMetadata, fileObj, fileHandle}
           currentIndex: -1, // Index into images[]
+          bulkMode: false,
         };
 
         // ── DOM refs ─────────────────────────────────────────────────
@@ -626,6 +741,12 @@
         const resetBtn = $("#resetBtn");
         const clearBtn = $("#clearBtn");
         const saveBtn = $("#saveBtn");
+        const bulkEditBtn = $("#bulkEditBtn");
+        const bulkBanner = $("#bulkBanner");
+        const bulkModalOverlay = $("#bulkModalOverlay");
+        const bulkFileCount = $("#bulkFileCount");
+        const bulkCancelBtn = $("#bulkCancelBtn");
+        const bulkConfirmBtn = $("#bulkConfirmBtn");
 
         const toastEl = $("#toast");
 
@@ -726,6 +847,7 @@
             resetBtn,
             clearBtn,
             saveBtn,
+            bulkEditBtn,
           ];
           fields.forEach((el) => {
             el.disabled = !enabled;
@@ -859,6 +981,12 @@
           // Load metadata into form
           setFormMetadata(entry.originalMetadata);
           setFormEnabled(true);
+
+          // In bulk mode, title stays locked
+          if (state.bulkMode) {
+            inputTitle.disabled = true;
+            bulkBanner.classList.add("show");
+          }
         }
 
         // ── Append files, fetch metadata for each ────────────────
@@ -871,12 +999,22 @@
 
           const added = [];
           let loadError = null;
+          const skippedFiles = [];
+          const existingNames = new Set(state.images.map((e) => e.filename));
 
           for (let i = 0; i < items.length; i++) {
             const item = items[i];
             const fileObj = item.file || item;
             const fileHandle = item.handle || null;
             const filename = fileObj.webkitRelativePath || fileObj.name;
+
+            // Skip duplicates (already loaded)
+            if (existingNames.has(filename)) {
+              skippedFiles.push(filename);
+              continue;
+            }
+            existingNames.add(filename);
+
             const blobUrl = URL.createObjectURL(fileObj);
             const formData = new FormData();
             formData.append("file", fileObj, filename);
@@ -903,10 +1041,14 @@
           }
 
           if (added.length === 0) {
-            showToast(
-              "Error loading images" + (loadError ? ": " + loadError : ""),
-              "error",
-            );
+            if (skippedFiles.length) {
+              showToast("All selected files are already loaded — nothing to add", "info");
+            } else {
+              showToast(
+                "Error loading images" + (loadError ? ": " + loadError : ""),
+                "error",
+              );
+            }
             return;
           }
 
@@ -925,12 +1067,16 @@
 
           const prevCount = state.images.length;
           state.images.push(...added);
-          state.currentIndex = prevCount; // jump to first newly added image
+          state.currentIndex = prevCount;
           showImage(state.currentIndex);
-          showToast(
-            `Added ${added.length} image(s) (${state.images.length} total)`,
-            "info",
-          );
+          let msg = `Added ${added.length} image(s) (${state.images.length} total)`;
+          if (skippedFiles.length) {
+            const names = skippedFiles.length <= 3
+              ? skippedFiles.join(", ")
+              : `${skippedFiles.slice(0, 3).join(", ")} + ${skippedFiles.length - 3} more`;
+            msg += ` — ${skippedFiles.length} duplicate(s) skipped: ${names}`;
+          }
+          showToast(msg, "info");
           if (loadError)
             showToast("Some images failed to load: " + loadError, "error");
         }
@@ -944,58 +1090,64 @@
 
         // ── Save / Reset ─────────────────────────────────────────────
         async function saveMetadata() {
-          const entry = state.images[state.currentIndex];
-          if (!entry) {
-            showToast("No file loaded", "error");
+          if (!state.images.length) {
+            showToast("No files loaded", "error");
             return;
           }
 
           const metadata = getFormMetadata();
+          const targets = state.bulkMode ? state.images : [state.images[state.currentIndex]];
+          const validTargets = targets.filter(Boolean);
 
-          const uploadApply = async (fileObj) => {
+          // Helper: apply metadata to a single file and write back
+          const applyToEntry = async (entry, meta, filename) => {
             const fd = new FormData();
-            fd.append("file", fileObj, entry.filename);
-            const q = `?metadata=${encodeURIComponent(JSON.stringify(metadata))}`;
+            fd.append("file", entry.fileObj, filename);
+            const q = `?metadata=${encodeURIComponent(JSON.stringify(meta))}`;
             const res = await fetch(`/api/metadata/apply${q}`, {
               method: "POST",
               body: fd,
             });
-            if (!res.ok) throw new Error(res.statusText);
-            return res.blob();
-          };
-
-          try {
-            let updated;
-
-            // Write-back via File System Access handle (in-place)
-            // Permission was already requested at load time.
+            if (!res.ok) throw new Error(res.statusText + " for " + filename);
+            const blob = await res.blob();
             if (entry.fileHandle) {
-              const fileObj = await entry.fileHandle.getFile();
-              const blob = await uploadApply(fileObj);
               const writable = await entry.fileHandle.createWritable();
               await writable.write(blob);
               await writable.close();
-              // Re-read from the handle after write
-              const freshFile = await entry.fileHandle.getFile();
-              const fd = new FormData();
-              fd.append("file", freshFile, entry.filename);
-              const conf = await fetch("/api/metadata/upload", {
-                method: "POST",
-                body: fd,
-              });
-              updated = await conf.json();
-            } else {
-              // No writable handle — in-place save isn't supported in this browser
-              showToast(
-                "In-place save not supported in this browser. Use Chrome or Edge.",
-                "error",
+            }
+            // Re-read to get updated metadata
+            const freshFile = entry.fileHandle
+              ? await entry.fileHandle.getFile()
+              : entry.fileObj;
+            const reRead = new FormData();
+            reRead.append("file", freshFile, filename);
+            const conf = await fetch("/api/metadata/upload", {
+              method: "POST",
+              body: reRead,
+            });
+            return await conf.json();
+          };
+
+          try {
+            let saved = 0;
+            for (const entry of validTargets) {
+              // In bulk mode, copy global metadata but preserve each file's title
+              const perFileMeta = state.bulkMode
+                ? { ...metadata, title: entry.originalMetadata?.title ?? null }
+                : metadata;
+              const updated = await applyToEntry(
+                entry,
+                perFileMeta,
+                entry.filename,
               );
-              return;
+              entry.originalMetadata = JSON.parse(JSON.stringify(updated));
+              saved++;
             }
 
-            entry.originalMetadata = JSON.parse(JSON.stringify(updated));
-            setFormMetadata(updated);
-            showToast("Metadata saved successfully", "success");
+            // Update form to show the current entry's new metadata
+            const curEntry = state.images[state.currentIndex];
+            if (curEntry) setFormMetadata(curEntry.originalMetadata);
+            showToast(`Metadata saved successfully (${saved} file${saved > 1 ? "s" : ""})`, "success");
           } catch (err) {
             showToast("Error saving: " + err.message, "error");
           }
@@ -1007,6 +1159,56 @@
           setFormMetadata(entry.originalMetadata);
           showToast("Reset to original values", "info");
         }
+
+        // ── Bulk edit mode ──────────────────────────────────────────
+        function showBulkModal() {
+          bulkFileCount.textContent = state.images.length;
+          bulkModalOverlay.classList.add("show");
+        }
+
+        function hideBulkModal() {
+          bulkModalOverlay.classList.remove("show");
+        }
+
+        function enterBulkMode() {
+          state.bulkMode = true;
+          hideBulkModal();
+          inputTitle.disabled = true;
+          bulkBanner.classList.add("show");
+          bulkEditBtn.textContent = "Exit Bulk Edit";
+          bulkEditBtn.classList.add("btn-reset");
+          bulkEditBtn.classList.remove("btn-bulk");
+          showToast(`Bulk edit mode — editing ${state.images.length} files`, "info");
+        }
+
+        function exitBulkMode() {
+          state.bulkMode = false;
+          inputTitle.disabled = false;
+          bulkBanner.classList.remove("show");
+          bulkEditBtn.textContent = "Bulk Edit";
+          bulkEditBtn.classList.remove("btn-reset");
+          bulkEditBtn.classList.add("btn-bulk");
+          // Reload current image's metadata to restore title
+          const entry = state.images[state.currentIndex];
+          if (entry) setFormMetadata(entry.originalMetadata);
+          showToast("Bulk edit mode disabled", "info");
+        }
+
+        bulkEditBtn.addEventListener("click", function () {
+          if (state.bulkMode) {
+            exitBulkMode();
+          } else if (state.images.length) {
+            showBulkModal();
+          }
+        });
+
+        bulkCancelBtn.addEventListener("click", hideBulkModal);
+        bulkConfirmBtn.addEventListener("click", enterBulkMode);
+
+        // Click outside modal to dismiss
+        bulkModalOverlay.addEventListener("click", function (e) {
+          if (e.target === bulkModalOverlay) hideBulkModal();
+        });
 
         function clearAll() {
           // Revoke all blob URLs to free memory
@@ -1028,6 +1230,7 @@
           setFormEnabled(false);
           setFormMetadata({});
           updateMap(null, null, null);
+          if (state.bulkMode) exitBulkMode();
           showToast("Cleared all images", "info");
         }
 
