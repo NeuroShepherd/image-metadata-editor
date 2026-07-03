@@ -550,19 +550,8 @@
     <header>
       <h1>📷 Image Metadata Editor</h1>
       <div class="file-selector">
-        <label for="fileInput">
-          Browse Files…
-          <input type="file" id="fileInput" accept="image/*" multiple />
-        </label>
-        <label for="folderInput">
-          📁 Folder…
-          <input
-            type="file"
-            id="folderInput"
-            accept="image/*"
-            webkitdirectory
-          />
-        </label>
+        <button class="action-btn" id="browseBtn">Browse Files…</button>
+        <button class="action-btn" id="folderBtn">📁 Folder…</button>
         <button class="clear-btn" id="clearBtn" disabled>Clear All</button>
       </div>
     </header>
@@ -666,7 +655,7 @@
         <div class="image-preview" id="imagePreview">
           <div class="placeholder" id="placeholder">
             <strong>No image loaded</strong>
-            Browse for images using the buttons above
+            Click Browse Files or Folder above to select images
           </div>
           <div class="nav-overlay" id="navOverlay" style="display: none">
             <button id="prevBtn" title="Previous image">◀</button>
@@ -715,15 +704,15 @@
 
         // ── State ────────────────────────────────────────────────────
         const state = {
-          images: [], // Array of {blobUrl, filename, originalMetadata, fileObj, fileHandle}
-          currentIndex: -1, // Index into images[]
+          images: [], // Array of {filename, originalMetadata}
+          currentIndex: -1,
           bulkMode: false,
         };
 
         // ── DOM refs ─────────────────────────────────────────────────
         const $ = (sel) => document.querySelector(sel);
-        const fileInput = $("#fileInput");
-        const folderInput = $("#folderInput");
+        const browseBtn = $("#browseBtn");
+        const folderBtn = $("#folderBtn");
         const filePath = $("#filePath");
         const imgPreview = $("#imagePreview");
         const placeholder = $("#placeholder");
@@ -966,126 +955,68 @@
           const entry = state.images[index];
           if (!entry) return;
 
-          // Update the nav + counter
           navOverlay.style.display = "flex";
           imageCounter.style.display = "block";
           imageCounter.textContent = `${index + 1} / ${state.images.length}`;
           prevBtn.disabled = index === 0;
           nextBtn.disabled = index === state.images.length - 1;
 
-          // Show preview
-          imgPreview.innerHTML = `<img src="${entry.blobUrl}" alt="${entry.filename}" />`;
+          // Server-driven preview
+          imgPreview.innerHTML = `<img src="/api/images/serve?path=${encodeURIComponent(entry.filename)}" alt="${entry.filename}" />`;
           imgPreview.appendChild(navOverlay);
           imgPreview.appendChild(imageCounter);
 
-          // Update file path display
           filePath.textContent = entry.filename;
-
-          // Load metadata into form
           setFormMetadata(entry.originalMetadata);
           setFormEnabled(true);
 
-          // In bulk mode, title stays locked
           if (state.bulkMode) {
             inputTitle.disabled = true;
             bulkBanner.classList.add("show");
           }
         }
 
-        // ── Append files, fetch metadata for each ────────────────
-        // Each item in fileList is either a {file, handle} object (from File System Access API)
-        // or a bare File (from <input> fallback).  New items are appended to state.images
-        // without removing already-loaded images.
-        async function loadFiles(fileList) {
-          const items = Array.from(fileList);
-          if (!items.length) return;
-
-          const added = [];
-          let loadError = null;
-          const skippedFiles = [];
-          const existingNames = new Set(state.images.map((e) => e.filename));
-
-          for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            const fileObj = item.file || item;
-            const fileHandle = item.handle || null;
-            const filename = fileObj.webkitRelativePath || fileObj.name;
-
-            // Skip duplicates (already loaded)
-            if (existingNames.has(filename)) {
-              skippedFiles.push(filename);
-              continue;
-            }
-            existingNames.add(filename);
-
-            const blobUrl = URL.createObjectURL(fileObj);
-            const formData = new FormData();
-            formData.append("file", fileObj, filename);
-
-            try {
-              const res = await fetch("/api/metadata/upload", {
-                method: "POST",
-                body: formData,
-              });
-              if (!res.ok) throw new Error(res.statusText);
-              const metadata = await res.json();
-              added.push({
-                blobUrl,
-                filename,
-                fileObj,
-                fileHandle,
-                originalMetadata: JSON.parse(JSON.stringify(metadata)),
-              });
-            } catch (err) {
-              URL.revokeObjectURL(blobUrl);
-              loadError = err.message;
-              break;
-            }
-          }
-
-          if (added.length === 0) {
-            if (skippedFiles.length) {
-              showToast(
-                "All selected files are already loaded — nothing to add",
-                "info",
-              );
-            } else {
-              showToast(
-                "Error loading images" + (loadError ? ": " + loadError : ""),
-                "error",
-              );
-            }
-            return;
-          }
-
-          // Request write permission for new handles
-          const handles = added.map((e) => e.fileHandle).filter(Boolean);
-          if (handles.length) {
-            const results = await Promise.allSettled(
-              handles.map((h) => h.requestPermission({ mode: "readwrite" })),
-            );
-            results.forEach((r, i) => {
-              if (r.status === "fulfilled" && r.value !== "granted") {
-                added[i].fileHandle = null;
-              }
+        // ── Load files via server-side native dialog ──────────────
+        async function loadFromDialog(mode) {
+          try {
+            const res = await fetch(`/api/images/dialog?mode=${mode}`, {
+              method: "POST",
             });
-          }
+            if (!res.ok) throw new Error(res.statusText);
+            const paths = await res.json();
+            if (!paths.length) return; // user cancelled
 
-          const prevCount = state.images.length;
-          state.images.push(...added);
-          state.currentIndex = prevCount;
-          showImage(state.currentIndex);
-          let msg = `Added ${added.length} image(s) (${state.images.length} total)`;
-          if (skippedFiles.length) {
-            const names =
-              skippedFiles.length <= 3
-                ? skippedFiles.join(", ")
-                : `${skippedFiles.slice(0, 3).join(", ")} + ${skippedFiles.length - 3} more`;
-            msg += ` — ${skippedFiles.length} duplicate(s) skipped: ${names}`;
+            const entries = [];
+            const existing = new Set(state.images.map((e) => e.filename));
+            for (const p of paths) {
+              if (existing.has(p)) continue;
+              existing.add(p);
+              try {
+                const metaRes = await fetch(
+                  `/api/metadata?file=${encodeURIComponent(p)}`,
+                );
+                if (!metaRes.ok) continue;
+                entries.push({
+                  filename: p,
+                  originalMetadata: await metaRes.json(),
+                });
+              } catch (_) {}
+            }
+            if (!entries.length) {
+              showToast("All selected files already loaded", "info");
+              return;
+            }
+            const prev = state.images.length;
+            state.images.push(...entries);
+            state.currentIndex = prev;
+            showImage(state.currentIndex);
+            showToast(
+              `Loaded ${entries.length} image(s) (${state.images.length} total)`,
+              "info",
+            );
+          } catch (err) {
+            showToast("Error: " + err.message, "error");
           }
-          showToast(msg, "info");
-          if (loadError)
-            showToast("Some images failed to load: " + loadError, "error");
         }
 
         // ── Navigate ───────────────────────────────────────────────
@@ -1095,7 +1026,7 @@
           showImage(index);
         }
 
-        // ── Save / Reset ─────────────────────────────────────────────
+        // ── Save (server-side via writer.py, preserves timestamps) ──
         async function saveMetadata() {
           if (!state.images.length) {
             showToast("No files loaded", "error");
@@ -1106,12 +1037,10 @@
           const targets = state.bulkMode
             ? state.images
             : [state.images[state.currentIndex]];
-          const validTargets = targets.filter(Boolean);
 
           try {
             let saved = 0;
-            for (const entry of validTargets) {
-              // Merge form over original — null fields preserve existing values
+            for (const entry of targets) {
               const orig = entry.originalMetadata || {};
               const perFileMeta = {
                 title: state.bulkMode
@@ -1131,47 +1060,22 @@
                     : orig.date_taken,
                 gps: formMeta.gps != null ? formMeta.gps : orig.gps,
               };
-
-              let updated;
-              if (entry.fileHandle) {
-                // Browser-side write via File System Access API
-                const fd = new FormData();
-                fd.append("file", entry.fileObj, entry.filename);
-                const q = `?metadata=${encodeURIComponent(JSON.stringify(perFileMeta))}`;
-                const res = await fetch(`/api/metadata/apply${q}`, { method: "POST", body: fd });
-                if (!res.ok) throw new Error(res.statusText + " for " + entry.filename);
-                const blob = await res.blob();
-                const writable = await entry.fileHandle.createWritable();
-                await writable.write(blob);
-                await writable.close();
-                const freshFile = await entry.fileHandle.getFile();
-                entry.fileObj = freshFile;
-                URL.revokeObjectURL(entry.blobUrl);
-                entry.blobUrl = URL.createObjectURL(freshFile);
-                const reRead = new FormData();
-                reRead.append("file", freshFile, entry.filename);
-                const conf = await fetch("/api/metadata/upload", { method: "POST", body: reRead });
-                updated = await conf.json();
-              } else {
-                showToast("Cannot save — no write path for " + entry.filename, "error");
-                continue;
-              }
-              entry.originalMetadata = JSON.parse(JSON.stringify(updated));
+              const res = await fetch(
+                `/api/metadata?file=${encodeURIComponent(entry.filename)}`,
+                {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(perFileMeta),
+                },
+              );
+              if (!res.ok)
+                throw new Error(res.statusText + " for " + entry.filename);
+              entry.originalMetadata = await res.json();
               saved++;
             }
-
-            // Repair the current image preview
-            const curEntry = state.images[state.currentIndex];
-            if (curEntry) {
-              imgPreview
-                .querySelector("img")
-                ?.setAttribute("src", curEntry.blobUrl);
-              setFormMetadata(curEntry.originalMetadata);
-            }
-            showToast(
-              `Metadata saved successfully (${saved} file${saved > 1 ? "s" : ""})`,
-              "success",
-            );
+            const cur = state.images[state.currentIndex];
+            if (cur) setFormMetadata(cur.originalMetadata);
+            showToast(`Saved ${saved} file${saved > 1 ? "s" : ""}`, "success");
           } catch (err) {
             showToast("Error saving: " + err.message, "error");
           }
@@ -1189,7 +1093,6 @@
           bulkFileCount.textContent = state.images.length;
           bulkModalOverlay.classList.add("show");
         }
-
         function hideBulkModal() {
           bulkModalOverlay.classList.remove("show");
         }
@@ -1215,45 +1118,33 @@
           bulkEditBtn.textContent = "Bulk Edit";
           bulkEditBtn.classList.remove("btn-reset");
           bulkEditBtn.classList.add("btn-bulk");
-          // Reload current image's metadata to restore title
           const entry = state.images[state.currentIndex];
           if (entry) setFormMetadata(entry.originalMetadata);
           showToast("Bulk edit mode disabled", "info");
         }
 
         bulkEditBtn.addEventListener("click", function () {
-          if (state.bulkMode) {
-            exitBulkMode();
-          } else if (state.images.length) {
-            showBulkModal();
-          }
+          state.bulkMode
+            ? exitBulkMode()
+            : state.images.length
+              ? showBulkModal()
+              : null;
         });
-
         bulkCancelBtn.addEventListener("click", hideBulkModal);
         bulkConfirmBtn.addEventListener("click", enterBulkMode);
-
-        // Click outside modal to dismiss
         bulkModalOverlay.addEventListener("click", function (e) {
           if (e.target === bulkModalOverlay) hideBulkModal();
         });
 
         function clearAll() {
-          // Revoke all blob URLs to free memory
-          state.images.forEach((e) => URL.revokeObjectURL(e.blobUrl));
           state.images = [];
           state.currentIndex = -1;
-
-          // Reset UI
           filePath.textContent = "No file loaded";
-          imgPreview.innerHTML = `<div class="placeholder" id="placeholder">
-            <strong>No image loaded</strong>
-            Browse for images using the buttons above
-          </div>`;
+          imgPreview.innerHTML = `<div class="placeholder"><strong>No image loaded</strong>Click Browse Files or Folder above to select images</div>`;
           imgPreview.appendChild(navOverlay);
           imgPreview.appendChild(imageCounter);
           navOverlay.style.display = "none";
           imageCounter.style.display = "none";
-
           setFormEnabled(false);
           setFormMetadata({});
           updateMap(null, null, null);
@@ -1261,128 +1152,27 @@
           showToast("Cleared all images", "info");
         }
 
-        // ── File picking using File System Access API (in-place read/write) ──
-        async function pickFiles() {
-          try {
-            const handles = await window.showOpenFilePicker({
-              multiple: true,
-              types: [
-                {
-                  description: "Images",
-                  accept: {
-                    "image/*": [
-                      ".jpg",
-                      ".jpeg",
-                      ".png",
-                      ".tif",
-                      ".tiff",
-                      ".webp",
-                      ".heic",
-                      ".heif",
-                    ],
-                  },
-                },
-              ],
-            });
-            const items = await Promise.all(
-              handles.map(async (handle) => ({
-                file: await handle.getFile(),
-                handle,
-              })),
-            );
-            loadFiles(items);
-          } catch (err) {
-            if (err.name !== "AbortError")
-              showToast("Could not access files: " + err.message, "error");
-          }
-        }
-
-        async function pickFolder() {
-          try {
-            const dirHandle = await window.showDirectoryPicker();
-            const items = [];
-            // dirHandle.entries() returns only direct children (non-recursive).
-            for await (const [name, entry] of dirHandle.entries()) {
-              if (entry.kind !== "file") continue; // skip directories
-              const ext = name.toLowerCase().split(".").pop();
-              if (
-                [
-                  "jpg",
-                  "jpeg",
-                  "png",
-                  "tif",
-                  "tiff",
-                  "webp",
-                  "heic",
-                  "heif",
-                ].includes(ext)
-              ) {
-                items.push({ file: await entry.getFile(), handle: entry });
-              }
-            }
-            if (items.length) {
-              loadFiles(items);
-              return;
-            }
-            showToast("No supported images found in that folder", "error");
-          } catch (err) {
-            if (err.name !== "AbortError")
-              showToast("Could not access folder: " + err.message, "error");
-          }
-        }
-
-        // Wire the Browse/Folder labels to the async pickers
-        const browseLabel = document.querySelector("label[for=fileInput]");
-        const folderLabel = document.querySelector("label[for=folderInput]");
-
-        if (window.showOpenFilePicker) {
-          browseLabel?.addEventListener("click", function (e) {
-            e.preventDefault();
-            pickFiles();
-          });
-          fileInput.style.display = "none";
-        } else {
-          browseLabel?.addEventListener("click", function (e) {
-            e.preventDefault();
-            showToast(
-              "Your browser doesn't support in-place editing. Please use Chrome or Edge.",
-              "error",
-            );
-          });
-        }
-
-        if (window.showDirectoryPicker) {
-          folderLabel?.addEventListener("click", function (e) {
-            e.preventDefault();
-            pickFolder();
-          });
-          folderInput.style.display = "none";
-        } else {
-          folderLabel?.addEventListener("click", function (e) {
-            e.preventDefault();
-            showToast(
-              "Your browser doesn't support in-place editing. Please use Chrome or Edge.",
-              "error",
-            );
-          });
-        }
-
+        // ── Event listeners ─────────────────────────────────────────
+        browseBtn.addEventListener("click", () => loadFromDialog("files"));
+        folderBtn.addEventListener("click", () => loadFromDialog("folder"));
         prevBtn.addEventListener("click", () =>
           goToImage(state.currentIndex - 1),
         );
         nextBtn.addEventListener("click", () =>
           goToImage(state.currentIndex + 1),
         );
-
         addKeywordBtn.addEventListener("click", function () {
           const kw = inputKeyword.value.trim();
           if (kw) {
             const existing =
               keywordsContainer.querySelectorAll(".keyword-text");
-            const exists = Array.from(existing).some(
-              (el) => el.textContent.toLowerCase() === kw.toLowerCase(),
-            );
-            if (!exists) addKeywordTag(kw);
+            if (
+              !Array.from(existing).some(
+                (el) => el.textContent.toLowerCase() === kw.toLowerCase(),
+              )
+            ) {
+              addKeywordTag(kw);
+            }
             inputKeyword.value = "";
           }
         });
@@ -1392,7 +1182,6 @@
             addKeywordBtn.click();
           }
         });
-
         resetBtn.addEventListener("click", resetMetadata);
         clearBtn.addEventListener("click", clearAll);
         saveBtn.addEventListener("click", saveMetadata);
