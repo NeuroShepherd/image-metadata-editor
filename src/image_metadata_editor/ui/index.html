@@ -453,9 +453,6 @@
             webkitdirectory
           />
         </label>
-        <button class="load-btn" id="loadDefaultBtn">
-          Load testing-image.jpeg
-        </button>
       </div>
     </header>
 
@@ -590,7 +587,7 @@
         const folderInput = $("#folderInput");
         const folderBtn = $("#folderBtn");
         const filePath = $("#filePath");
-        const loadDefaultBtn = $("#loadDefaultBtn");
+
         const imgPreview = $("#imagePreview");
         const navOverlay = $("#navOverlay");
         const prevBtn = $("#prevBtn");
@@ -844,7 +841,7 @@
 
         // ── Load metadata from image via API ───────────────────────
         async function loadMetadataForFile(filename) {
-          filePath.textContent = filename || "testing-image.jpeg";
+          filePath.textContent = filename;
 
           const params = filename
             ? `?file=${encodeURIComponent(filename)}`
@@ -862,7 +859,7 @@
             state.currentMetadata = JSON.parse(JSON.stringify(metadata));
             setFormMetadata(metadata);
             setFormEnabled(true);
-            showToast(`Loaded: ${filename || "testing-image.jpeg"}`, "info");
+            showToast(`Loaded: ${filename}`, "info");
           } catch (err) {
             showToast("Error loading metadata: " + err.message, "error");
           }
@@ -926,20 +923,6 @@
           await loadMetadataForFile(state.images[index]);
         }
 
-        // ── Load default testing image ──────────────────────────────
-        async function loadDefaultImage() {
-          state.images = [];
-          state.currentIndex = -1;
-          navOverlay.style.display = "none";
-          imageCounter.style.display = "none";
-
-          // Show the image preview from the server
-          imgPreview.innerHTML = `<img src="/testing-image.jpeg" alt="testing-image.jpeg" />`;
-          imgPreview.appendChild(navOverlay);
-          imgPreview.appendChild(imageCounter);
-          await loadMetadataForFile(null);
-        }
-
         // ── Save / Reset ─────────────────────────────────────────────
         async function saveMetadata() {
           const metadata = getFormMetadata();
@@ -990,8 +973,6 @@
           }
           this.value = "";
         });
-
-        loadDefaultBtn.addEventListener("click", loadDefaultImage);
 
         prevBtn.addEventListener("click", function () {
           goToImage(state.currentIndex - 1);
@@ -1060,10 +1041,7 @@
         // ── Init ─────────────────────────────────────────────────────
         initMap();
 
-        // Auto-load the default image on page load
-        document.addEventListener("DOMContentLoaded", function () {
-          loadDefaultImage();
-        });
+        // The app starts with no image loaded — the user selects a file.
       })();
     </script>
   </body>
