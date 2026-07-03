@@ -1,41 +1,68 @@
 # Image Metadata Editor
 
-Context: images can have a plethora of associated metadata such as capture data, geographic location, photographer, and more. This data is utilized by photo gallery applications like Apple Photos, Immich, Google Photos, and more to organize photos chronologically, by location, and by other options.
+A local web app for viewing and editing image metadata — title, description,
+keywords, date taken, and GPS coordinates — with a visual map and bulk editing
+support.
 
-However, if a camera was not configured to capture and retain this information for each photo or if, for example, the images were scanned from analogue to digital format then this information is not readily available thus rendering many photo gallery applications useless.
+## Features
 
-Command line tools, namely [Exiftool](https://exiftool.org/), exist to allow users to add and edit such metadata in their images. Unfortunately, this requires command line knowledge, and may be daunting to users.
+- **Browse files or folders** via native OS dialogs — no typing paths
+- **Edit metadata** in-place via a web form (title, description, keywords, date, GPS)
+- **Interactive map** for GPS coordinates (click to set, drag to adjust)
+- **Bulk edit mode** — apply changes to all loaded images at once
+- **Preserves filesystem timestamps** — server writes directly via `writer.py`
+- **Works in any browser** — Safari, Firefox, Chrome, Edge
 
-The goal of this tool is to provide a GUI interface for quickly and easily editing metadata for common image formats (goal supported: .png, .jpg, .heic, ...)
+## Supported Formats
 
-## Supported Metadata Standards by Format
+| Format | Read | Write |
+| ------ | ---- | ----- |
+| JPEG   | ✅   | ✅    |
+| TIFF   | ✅   | ✅    |
+| PNG    | ✅   | ✅    |
+| WebP   | ✅   | ✅    |
+| HEIC   | ✅   | ✅    |
 
-**Note: This is not necessarily what this app supports, but is for informational purposes.**
+## Setup
 
-| Format                | Metadata Standards                                                                                                            |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **JPEG**              | **EXIF**, **IPTC IIM**, **XMP**, JFIF                                                                                         |
-| **TIFF**              | **EXIF**, **IPTC**, **XMP** (TIFF is the native container for EXIF)                                                           |
-| **HEIC/HEIF**         | **EXIF**, **XMP**                                                                                                             |
-| **WebP**              | **EXIF**, **XMP**                                                                                                             |
-| **PNG**               | **XMP** (embedded in `iTXt` chunk), **text chunks** (tEXt/zTXt), no native EXIF — GPS data still possible via `Xmp.exif.GPS*` |
-| **GIF**               | **XMP** (via extension block), very limited otherwise                                                                         |
-| **RAW** (CR2/NEF/ARW) | Extended **EXIF** with **MakerNotes** (camera-proprietary)                                                                    |
+Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/).
 
-### Targeted Support
+```bash
+# Clone the repo
+git clone <repo-url>
+cd image-metadata-editor
 
-The editor aims to support **most EXIF features** across formats that support it (JPEG, TIFF, HEIC, WebP, RAW), and **XMP** for formats that lack native EXIF (particularly **PNG**). This covers the most common metadata needs: camera capture data, GPS location, dates, copyright, and descriptive tags.
+# Install dependencies
+uv sync
 
-## Current State
+# Start the server
+uv run uvicorn src.image_metadata_editor.main:app --reload --port 8000
 
-- Data classes and utilities for reading and writing image files have been defined
-  - This should probably just be outsourced to the exiftool though. Future task to simplify everything here.
-- A web application can read in one or multiple files or a folder at a time that the user can flip through to edit metadata information.
-  - This is hardcoded right now and files that are added are uploaded to an uploads/ folder currently.
-- Need to implement an API between the UI and the models and helpers described above that allows for direct reading/writing from the path of the image rather than creating copies of the image
+# Open in browser
+open http://127.0.0.1:8000
+```
 
-* Note: should have just used tkinter ttk for this project because there were significant limitations and frustrations with a browser-based approach
-  - firefox and safari don't support the spec for editing files on the system--just Chromium browsers
-    - kept updating the Created date because, well, technically a new file was being written by this process
-  - using an API ultimately is not necessary and was overkill for this project given that I didn't need a browser (but still nice to practice a bit)
-  - before switching some parts to tkinter in the api, this project would have only worked on Mac
+## Usage
+
+1. Click **Browse Files…** to pick individual images, or **📁 Folder…** to load a directory
+2. Navigate between images with the ◀ ▶ arrows
+3. Edit title, description, keywords, date, and GPS coordinates
+4. Click the map to set GPS location, or type coordinates manually
+5. Click **Save Changes** to write metadata directly to the files
+6. Use **Bulk Edit** to apply metadata to all loaded images at once (title excluded)
+
+## Architecture
+
+- **Frontend** — Single-page HTML/CSS/JS with Leaflet for the map
+- **Backend** — FastAPI server handling all file I/O
+- **Metadata** — Custom `reader.py` / `writer.py` using Pillow + piexif
+- **File dialogs** — Native OS pickers via osascript (macOS) or tkinter (Linux/Windows)
+
+## Lessons Learned
+
+- The browser-based approach had significant growing pains:
+  - Firefox and Safari don't support the File System Access API — Chromium browsers was needed for in-place writes via `createWritable()` (which I wound up removing anyway)
+  - `createWritable()` kept updating the file's Created date — technically a new file was being written each save
+  - Solved both by switching to **server-side native file dialogs** (osascript on macOS, tkinter fallback elsewhere) and letting the server handle all I/O via `reader.py` / `writer.py` — timestamps preserved, any browser works
+  - Using FastAPI was arguably overkill for a local-only tool, but good practice regardless
+  - Something more direct like tkinter would have been easier and more efficient overall, but I got to learn some new skills
