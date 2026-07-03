@@ -213,26 +213,29 @@ def read_metadata(file_path: str | Path) -> ImageMetadata:
     try:
         with Image.open(path) as img:
             exif_obj = img.getexif()
+
+            # Build a flat dict from the main Exif object (0th IFD).
+            # For JPEG, the Exif sub-IFD (DateTimeOriginal etc.) is NOT
+            # included automatically, so we merge it in via get_ifd(0x8769).
+            # NOTE: get_ifd() MUST be called while the file is still open.
+            exif_data: dict[int, object] = dict(exif_obj)
+
+            # Merge Exif sub-IFD (tag 0x8769 = ExifOffset)
+            exif_sub_ifd = exif_obj.get_ifd(0x8769)
+            if exif_sub_ifd:
+                exif_data.update(exif_sub_ifd)
+
+            # Merge GPS sub-IFD (tag 0x8825)
+            gps_raw = exif_obj.get_ifd(_TAG_ID_GPS_INFO)
+
     except Exception as exc:
         raise ValueError(f"Failed to read image file '{path}': {exc}") from exc
-
-    # Build a flat dict from the main Exif object (0th IFD).
-    # For JPEG, the Exif sub-IFD (DateTimeOriginal etc.) is NOT included
-    # automatically, so we merge it in via get_ifd(0x8769).
-    exif_data: dict[int, object] = dict(exif_obj)
-
-    # Merge Exif sub-IFD (tag 0x8769 = ExifOffset)
-    exif_sub_ifd = exif_obj.get_ifd(0x8769)
-    if exif_sub_ifd:
-        exif_data.update(exif_sub_ifd)
 
     if not exif_data:
         return ImageMetadata()
 
     metadata = _parse_exif_tags(exif_data)
 
-    # Extract GPS data from the GPSInfo sub-IFD (tag 0x8825)
-    gps_raw: dict[int, object] | None = exif_obj.get_ifd(_TAG_ID_GPS_INFO)
     if gps_raw:
         gps = _parse_gps_data(gps_raw)
         if gps is not None:
