@@ -1102,64 +1102,65 @@
             return;
           }
 
-          const metadata = getFormMetadata();
+          const formMeta = getFormMetadata();
           const targets = state.bulkMode
             ? state.images
             : [state.images[state.currentIndex]];
           const validTargets = targets.filter(Boolean);
 
-          // Helper: apply metadata to a single file and write back
-          const applyToEntry = async (entry, meta, filename) => {
-            const fd = new FormData();
-            fd.append("file", entry.fileObj, filename);
-            const q = `?metadata=${encodeURIComponent(JSON.stringify(meta))}`;
-            const res = await fetch(`/api/metadata/apply${q}`, {
-              method: "POST",
-              body: fd,
-            });
-            if (!res.ok) throw new Error(res.statusText + " for " + filename);
-            const blob = await res.blob();
-            if (entry.fileHandle) {
-              const writable = await entry.fileHandle.createWritable();
-              await writable.write(blob);
-              await writable.close();
-            }
-            // Re-read to get updated metadata
-            const freshFile = entry.fileHandle
-              ? await entry.fileHandle.getFile()
-              : entry.fileObj;
-            const reRead = new FormData();
-            reRead.append("file", freshFile, filename);
-            const conf = await fetch("/api/metadata/upload", {
-              method: "POST",
-              body: reRead,
-            });
-            return await conf.json();
-          };
-
           try {
             let saved = 0;
             for (const entry of validTargets) {
-              const perFileMeta = state.bulkMode
-                ? { ...metadata, title: entry.originalMetadata?.title ?? null }
-                : metadata;
-              const updated = await applyToEntry(
-                entry,
-                perFileMeta,
-                entry.filename,
-              );
+              // Merge form over original — null fields preserve existing values
+              const orig = entry.originalMetadata || {};
+              const perFileMeta = {
+                title: state.bulkMode
+                  ? (orig.title ?? null)
+                  : formMeta.title != null
+                    ? formMeta.title
+                    : orig.title,
+                description:
+                  formMeta.description != null
+                    ? formMeta.description
+                    : orig.description,
+                keywords:
+                  formMeta.keywords != null ? formMeta.keywords : orig.keywords,
+                date_taken:
+                  formMeta.date_taken != null
+                    ? formMeta.date_taken
+                    : orig.date_taken,
+                gps: formMeta.gps != null ? formMeta.gps : orig.gps,
+              };
+
+              let updated;
+              if (entry.fileHandle) {
+                // Browser-side write via File System Access API
+                const fd = new FormData();
+                fd.append("file", entry.fileObj, entry.filename);
+                const q = `?metadata=${encodeURIComponent(JSON.stringify(perFileMeta))}`;
+                const res = await fetch(`/api/metadata/apply${q}`, { method: "POST", body: fd });
+                if (!res.ok) throw new Error(res.statusText + " for " + entry.filename);
+                const blob = await res.blob();
+                const writable = await entry.fileHandle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                const freshFile = await entry.fileHandle.getFile();
+                entry.fileObj = freshFile;
+                URL.revokeObjectURL(entry.blobUrl);
+                entry.blobUrl = URL.createObjectURL(freshFile);
+                const reRead = new FormData();
+                reRead.append("file", freshFile, entry.filename);
+                const conf = await fetch("/api/metadata/upload", { method: "POST", body: reRead });
+                updated = await conf.json();
+              } else {
+                showToast("Cannot save — no write path for " + entry.filename, "error");
+                continue;
+              }
               entry.originalMetadata = JSON.parse(JSON.stringify(updated));
-              // Refresh the blob URL — after writing to disk the old one may be invalidated
-              URL.revokeObjectURL(entry.blobUrl);
-              const freshFile = entry.fileHandle
-                ? await entry.fileHandle.getFile()
-                : entry.fileObj;
-              entry.blobUrl = URL.createObjectURL(freshFile);
-              entry.fileObj = freshFile;
               saved++;
             }
 
-            // Repair the current image preview with the fresh blob URL
+            // Repair the current image preview
             const curEntry = state.images[state.currentIndex];
             if (curEntry) {
               imgPreview
