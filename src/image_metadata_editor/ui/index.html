@@ -439,12 +439,11 @@
     <header>
       <h1>📷 Image Metadata Editor</h1>
       <div class="file-selector">
-        <span class="file-path" id="filePath">No file selected</span>
         <label>
           Browse…
           <input type="file" id="fileInput" accept="image/*" multiple />
         </label>
-        <label class="folder-btn" id="folderBtn">
+        <label>
           📁 Folder…
           <input
             type="file"
@@ -453,6 +452,7 @@
             webkitdirectory
           />
         </label>
+        <span class="file-path" id="filePath">No file loaded</span>
       </div>
     </header>
 
@@ -547,9 +547,9 @@
       <!-- Right: Image Preview + Map -->
       <div class="right-panel">
         <div class="image-preview" id="imagePreview">
-          <div class="placeholder">
+          <div class="placeholder" id="placeholder">
             <strong>No image loaded</strong>
-            Select an image file to view and edit its metadata
+            Browse for images using the buttons above
           </div>
           <div class="nav-overlay" id="navOverlay" style="display: none">
             <button id="prevBtn" title="Previous image">◀</button>
@@ -575,20 +575,17 @@
 
         // ── State ────────────────────────────────────────────────────
         const state = {
-          images: [], // Array of uploaded filenames
+          images: [], // Array of {blobUrl, filename, originalMetadata, fileObj, fileHandle}
           currentIndex: -1, // Index into images[]
-          originalMetadata: null, // Snapshot for Reset
-          currentMetadata: null, // Currently displayed
         };
 
         // ── DOM refs ─────────────────────────────────────────────────
         const $ = (sel) => document.querySelector(sel);
         const fileInput = $("#fileInput");
         const folderInput = $("#folderInput");
-        const folderBtn = $("#folderBtn");
         const filePath = $("#filePath");
-
         const imgPreview = $("#imagePreview");
+        const placeholder = $("#placeholder");
         const navOverlay = $("#navOverlay");
         const prevBtn = $("#prevBtn");
         const nextBtn = $("#nextBtn");
@@ -643,7 +640,6 @@
         function updateMap(lat, lon, alt) {
           if (!map) return;
           if (lat == null || lon == null || lat === "" || lon === "") {
-            // No GPS data – reset to world view
             map.setView([20, 0], 2);
             if (marker) {
               marker.remove();
@@ -651,16 +647,10 @@
             }
             return;
           }
-
           const latNum = parseFloat(lat);
           const lonNum = parseFloat(lon);
-
-          if (isNaN(latNum) || isNaN(lonNum)) {
-            return;
-          }
-
+          if (isNaN(latNum) || isNaN(lonNum)) return;
           map.setView([latNum, lonNum], 15);
-
           if (marker) {
             marker.setLatLng([latNum, lonNum]);
           } else {
@@ -672,19 +662,18 @@
               updateMarkerPopup(pos.lat, pos.lng, inputAltitude.value);
             });
           }
-
           updateMarkerPopup(latNum, lonNum, alt);
         }
 
         function updateMarkerPopup(lat, lon, alt) {
           if (!marker) return;
-          let popupText = `Lat: ${parseFloat(lat).toFixed(6)}<br>Lng: ${parseFloat(lon).toFixed(6)}`;
+          let text = `Lat: ${parseFloat(lat).toFixed(6)}<br>Lng: ${parseFloat(lon).toFixed(6)}`;
           if (alt != null && alt !== "" && !isNaN(parseFloat(alt))) {
-            popupText += `<br>Alt: ${parseFloat(alt).toFixed(1)} m`;
+            text += `<br>Alt: ${parseFloat(alt).toFixed(1)} m`;
           } else {
-            popupText += `<br>Alt: —`;
+            text += `<br>Alt: —`;
           }
-          marker.bindPopup(popupText).openPopup();
+          marker.bindPopup(text).openPopup();
         }
 
         // ── Toast ────────────────────────────────────────────────────
@@ -716,32 +705,22 @@
           fields.forEach((el) => {
             el.disabled = !enabled;
           });
-          // Re-render keyword tags in enabled/disabled style
           renderKeywords();
         }
 
         function getFormMetadata() {
-          const keywordsEls =
-            keywordsContainer.querySelectorAll(".keyword-tag");
-          const keywords = Array.from(keywordsEls).map(
+          const tags = keywordsContainer.querySelectorAll(".keyword-tag");
+          const keywords = Array.from(tags).map(
             (el) => el.querySelector(".keyword-text").textContent,
           );
-
           const lat = inputLatitude.value
             ? parseFloat(inputLatitude.value)
             : null;
           const lon = inputLongitude.value
             ? parseFloat(inputLongitude.value)
             : null;
-
-          // Derive GPS refs from coordinate signs
-          const latitude_ref = lat !== null ? (lat >= 0 ? "N" : "S") : null;
-          const longitude_ref = lon !== null ? (lon >= 0 ? "E" : "W") : null;
-
-          // Build gps object — null if no fields are set
           const hasGps =
             lat !== null || lon !== null || inputAltitude.value !== "";
-
           return {
             title: inputTitle.value || null,
             description: inputDescription.value || null,
@@ -751,9 +730,9 @@
               : null,
             gps: hasGps
               ? {
-                  latitude_ref: latitude_ref,
+                  latitude_ref: lat !== null ? (lat >= 0 ? "N" : "S") : null,
                   latitude: lat,
-                  longitude_ref: longitude_ref,
+                  longitude_ref: lon !== null ? (lon >= 0 ? "E" : "W") : null,
                   longitude: lon,
                   altitude: inputAltitude.value
                     ? parseFloat(inputAltitude.value)
@@ -768,8 +747,6 @@
           inputDescription.value = meta.description || "";
           renderKeywords(meta.keywords || []);
           inputKeyword.value = "";
-
-          // Date: convert from "YYYY:MM:DD HH:MM:SS" or ISO to datetime-local
           if (meta.date_taken) {
             const d = new Date(meta.date_taken);
             if (!isNaN(d.getTime())) {
@@ -790,12 +767,10 @@
           } else {
             inputDateTaken.value = "";
           }
-
           const gps = meta.gps || {};
           inputLatitude.value = gps.latitude != null ? gps.latitude : "";
           inputLongitude.value = gps.longitude != null ? gps.longitude : "";
           inputAltitude.value = gps.altitude != null ? gps.altitude : "";
-
           updateMap(
             inputLatitude.value,
             inputLongitude.value,
@@ -810,7 +785,6 @@
             (keywords || []).forEach((kw) => addKeywordTag(kw));
             return;
           }
-          // Toggle disabled state on existing tags (no re-render)
           const disabled = inputKeyword.disabled;
           keywordsContainer
             .querySelectorAll(".remove-keyword")
@@ -827,9 +801,7 @@
             `<span class="remove-keyword" data-keyword="${escapeHtml(keyword)}">&times;</span>`;
           tag
             .querySelector(".remove-keyword")
-            .addEventListener("click", function () {
-              tag.remove();
-            });
+            .addEventListener("click", () => tag.remove());
           keywordsContainer.appendChild(tag);
         }
 
@@ -839,148 +811,183 @@
           return div.innerHTML;
         }
 
-        // ── Load metadata from image via API ───────────────────────
-        async function loadMetadataForFile(filename) {
-          filePath.textContent = filename;
-
-          const params = filename
-            ? `?file=${encodeURIComponent(filename)}`
-            : "";
-          try {
-            const response = await fetch(`/api/metadata${params}`);
-            if (!response.ok) {
-              throw new Error(
-                "Failed to load metadata: " + response.statusText,
-              );
-            }
-            const metadata = await response.json();
-
-            state.originalMetadata = JSON.parse(JSON.stringify(metadata));
-            state.currentMetadata = JSON.parse(JSON.stringify(metadata));
-            setFormMetadata(metadata);
-            setFormEnabled(true);
-            showToast(`Loaded: ${filename}`, "info");
-          } catch (err) {
-            showToast("Error loading metadata: " + err.message, "error");
-          }
-        }
-
-        // ── Upload files and load the first one ────────────────────
-        async function uploadAndLoad(files) {
-          if (!files.length) return;
-
-          const formData = new FormData();
-          for (const file of files) {
-            formData.append("files", file);
-          }
-
-          try {
-            const uploadRes = await fetch("/api/images/upload", {
-              method: "POST",
-              body: formData,
-            });
-            if (!uploadRes.ok) {
-              throw new Error("Upload failed: " + uploadRes.statusText);
-            }
-            const filenames = await uploadRes.json();
-            if (!filenames.length) return;
-
-            state.images = filenames;
-            state.currentIndex = 0;
-
-            // Show the first image preview from the server
-            showImage(state.currentIndex);
-            await loadMetadataForFile(filenames[0]);
-          } catch (err) {
-            showToast("Error uploading images: " + err.message, "error");
-          }
-        }
-
-        // ── Show image at given index ─────────────────────────────
+        // ── Display the image + metadata at a given index ─────────
         function showImage(index) {
-          const filename = state.images[index];
-          if (!filename) return;
+          const entry = state.images[index];
+          if (!entry) return;
 
-          imgPreview.innerHTML = `
-            <img src="/api/images/${encodeURIComponent(filename)}" alt="${filename}" />
-          `;
-          // Re-append the nav overlay and counter that were cleared
-          imgPreview.appendChild(navOverlay);
-          imgPreview.appendChild(imageCounter);
-
+          // Update the nav + counter
           navOverlay.style.display = "flex";
           imageCounter.style.display = "block";
           imageCounter.textContent = `${index + 1} / ${state.images.length}`;
           prevBtn.disabled = index === 0;
           nextBtn.disabled = index === state.images.length - 1;
+
+          // Show preview
+          imgPreview.innerHTML = `<img src="${entry.blobUrl}" alt="${entry.filename}" />`;
+          imgPreview.appendChild(navOverlay);
+          imgPreview.appendChild(imageCounter);
+
+          // Update file path display
+          filePath.textContent = entry.filename;
+
+          // Load metadata into form
+          setFormMetadata(entry.originalMetadata);
+          setFormEnabled(true);
         }
 
-        // ── Navigate to previous / next image ─────────────────────
-        async function goToImage(index) {
+        // ── Load all selected files, fetch metadata for each ──────
+        async function loadFiles(fileList) {
+          const files = Array.from(fileList);
+          if (!files.length) return;
+
+          // Revoke old blob URLs
+          state.images.forEach((e) => URL.revokeObjectURL(e.blobUrl));
+
+          const newImages = [];
+          let loadError = null;
+
+          for (let i = 0; i < files.length; i++) {
+            const fileObj = files[i];
+            const filename = fileObj.webkitRelativePath || fileObj.name;
+            const blobUrl = URL.createObjectURL(fileObj);
+            const formData = new FormData();
+            formData.append("file", fileObj, filename);
+
+            try {
+              const res = await fetch("/api/metadata/upload", {
+                method: "POST",
+                body: formData,
+              });
+              if (!res.ok) throw new Error(res.statusText);
+              const metadata = await res.json();
+              newImages.push({
+                blobUrl,
+                filename,
+                fileObj,
+                fileHandle: null,
+                originalMetadata: JSON.parse(JSON.stringify(metadata)),
+              });
+            } catch (err) {
+              URL.revokeObjectURL(blobUrl);
+              loadError = err.message;
+              break;
+            }
+          }
+
+          if (newImages.length === 0) {
+            showToast(
+              "Error loading images" + (loadError ? ": " + loadError : ""),
+              "error",
+            );
+            return;
+          }
+
+          state.images = newImages;
+          state.currentIndex = 0;
+          showImage(0);
+          showToast(`Loaded ${newImages.length} image(s)`, "info");
+          if (loadError)
+            showToast("Some images failed to load: " + loadError, "error");
+        }
+
+        // ── Navigate ───────────────────────────────────────────────
+        function goToImage(index) {
           if (index < 0 || index >= state.images.length) return;
           state.currentIndex = index;
           showImage(index);
-          await loadMetadataForFile(state.images[index]);
         }
 
         // ── Save / Reset ─────────────────────────────────────────────
         async function saveMetadata() {
+          const entry = state.images[state.currentIndex];
+          if (!entry) {
+            showToast("No file loaded", "error");
+            return;
+          }
+
           const metadata = getFormMetadata();
-          const currentFile = state.images[state.currentIndex] || null;
-          const params = currentFile
-            ? `?file=${encodeURIComponent(currentFile)}`
-            : "";
-          try {
-            const response = await fetch(`/api/metadata${params}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(metadata),
+
+          const uploadApply = async (fileObj) => {
+            const fd = new FormData();
+            fd.append("file", fileObj, entry.filename);
+            const q = `?metadata=${encodeURIComponent(JSON.stringify(metadata))}`;
+            const res = await fetch(`/api/metadata/apply${q}`, {
+              method: "POST",
+              body: fd,
             });
-            if (!response.ok) {
-              throw new Error("Failed to save: " + response.statusText);
+            if (!res.ok) throw new Error(res.statusText);
+            return res.blob();
+          };
+
+          try {
+            let updated;
+
+            // Write-back via File System Access handle
+            if (entry.fileHandle) {
+              const fileObj = await entry.fileHandle.getFile();
+              const blob = await uploadApply(fileObj);
+              const writable = await entry.fileHandle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+              // Re-read
+              const fd = new FormData();
+              fd.append("file", fileObj, entry.filename);
+              const conf = await fetch("/api/metadata/upload", {
+                method: "POST",
+                body: fd,
+              });
+              updated = await conf.json();
+            } else {
+              // Browser-picked file — download modified version
+              const blob = await uploadApply(entry.fileObj);
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = entry.filename;
+              a.click();
+              URL.revokeObjectURL(a.href);
+              // Reload metadata from the temp upload
+              const fd = new FormData();
+              fd.append("file", entry.fileObj, entry.filename);
+              const conf = await fetch("/api/metadata/upload", {
+                method: "POST",
+                body: fd,
+              });
+              updated = await conf.json();
             }
-            const updated = await response.json();
-            state.originalMetadata = JSON.parse(JSON.stringify(updated));
-            state.currentMetadata = JSON.parse(JSON.stringify(updated));
+
+            entry.originalMetadata = JSON.parse(JSON.stringify(updated));
             setFormMetadata(updated);
             showToast("Metadata saved successfully", "success");
           } catch (err) {
-            showToast("Error saving metadata: " + err.message, "error");
+            showToast("Error saving: " + err.message, "error");
           }
         }
 
         function resetMetadata() {
-          if (state.originalMetadata) {
-            state.currentMetadata = JSON.parse(
-              JSON.stringify(state.originalMetadata),
-            );
-            setFormMetadata(state.originalMetadata);
-            showToast("Reset to original values", "info");
-          }
+          const entry = state.images[state.currentIndex];
+          if (!entry) return;
+          setFormMetadata(entry.originalMetadata);
+          showToast("Reset to original values", "info");
         }
 
         // ── Event listeners ─────────────────────────────────────────
         fileInput.addEventListener("change", function () {
-          if (this.files && this.files.length) {
-            uploadAndLoad(this.files);
-          }
+          if (this.files && this.files.length) loadFiles(this.files);
           this.value = "";
         });
 
         folderInput.addEventListener("change", function () {
-          if (this.files && this.files.length) {
-            uploadAndLoad(this.files);
-          }
+          if (this.files && this.files.length) loadFiles(this.files);
           this.value = "";
         });
 
-        prevBtn.addEventListener("click", function () {
-          goToImage(state.currentIndex - 1);
-        });
-
-        nextBtn.addEventListener("click", function () {
-          goToImage(state.currentIndex + 1);
-        });
+        prevBtn.addEventListener("click", () =>
+          goToImage(state.currentIndex - 1),
+        );
+        nextBtn.addEventListener("click", () =>
+          goToImage(state.currentIndex + 1),
+        );
 
         addKeywordBtn.addEventListener("click", function () {
           const kw = inputKeyword.value.trim();
@@ -990,13 +997,10 @@
             const exists = Array.from(existing).some(
               (el) => el.textContent.toLowerCase() === kw.toLowerCase(),
             );
-            if (!exists) {
-              addKeywordTag(kw);
-            }
+            if (!exists) addKeywordTag(kw);
             inputKeyword.value = "";
           }
         });
-
         inputKeyword.addEventListener("keydown", function (e) {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -1005,7 +1009,6 @@
         });
 
         resetBtn.addEventListener("click", resetMetadata);
-
         saveBtn.addEventListener("click", saveMetadata);
 
         // ── Sync map marker when GPS inputs change ───────────────────
@@ -1034,14 +1037,11 @@
             }
           }
         }
-
         inputLatitude.addEventListener("input", onGpsInputChange);
         inputLongitude.addEventListener("input", onGpsInputChange);
 
         // ── Init ─────────────────────────────────────────────────────
         initMap();
-
-        // The app starts with no image loaded — the user selects a file.
       })();
     </script>
   </body>
