@@ -1,5 +1,7 @@
 """Image endpoints — list images in a directory and serve image files."""
 
+import platform
+import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -14,16 +16,19 @@ _SUPPORTED_EXTENSIONS: set[str] = {
 
 @router.post("/dialog")
 def open_file_dialog(mode: str = Query("files", enum=["files", "folder"])):
-    """Open a native OS file/folder dialog via tkinter and return absolute paths.
+    """Open a native OS file dialog and return absolute paths.
 
-    The dialog runs modally on the server — no browser file picker
-    limitations, cross-platform, fully server-driven.
+    macOS uses osascript (tkinter crashes on worker threads).
+    Other platforms use tkinter.
     """
+    if platform.system() == "Darwin":
+        return _dialog_macos(mode)
+
+    # Linux / Windows — use tkinter
     import tkinter as tk
     from tkinter import filedialog
-
     root = tk.Tk()
-    root.withdraw()  # hide the empty tkinter window
+    root.withdraw()
     try:
         if mode == "folder":
             p = filedialog.askdirectory(title="Select a folder of images")
@@ -35,8 +40,41 @@ def open_file_dialog(mode: str = Query("files", enum=["files", "folder"])):
             ))
     finally:
         root.destroy()
-
     return [p for p in paths if p]
+
+
+def _dialog_macos(mode: str) -> list[str]:
+    """Open a native macOS file dialog via osascript and return POSIX paths."""
+    mode_flag = "folder" if mode == "folder" else "file"
+    script = f'''
+        tell application "Finder" to activate
+        try
+            set thePaths to choose {mode_flag} with prompt "Select {'a folder' if mode == 'folder' else 'images'}" {"with multiple selections allowed" if mode == "files" else ""}
+            set resultPaths to {{}}
+            repeat with f in thePaths
+                set end of resultPaths to quoted form of POSIX path of f
+            end repeat
+            set AppleScript's text item delimiters to linefeed
+            return resultPaths as text
+        on error
+            return "CANCELLED"
+        end try
+    '''
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr.strip())
+    output = result.stdout.strip()
+    if output == "CANCELLED":
+        return []
+    paths = []
+    for line in output.splitlines():
+        p = line.strip().strip("'")
+        if p:
+            paths.append(p)
+    return paths
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
