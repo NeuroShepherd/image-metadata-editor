@@ -108,10 +108,31 @@
       .file-selector .action-btn:hover {
         background: #16213e;
       }
-      .file-selector .file-path {
+      .file-selector .clear-btn {
+        background: #555;
+        color: #fff;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
         font-size: 13px;
-        color: #aaa;
-        max-width: 360px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .file-selector .clear-btn:hover {
+        background: #e94560;
+      }
+      .file-selector .clear-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .metadata-panel .file-path {
+        font-size: 12px;
+        color: #888;
+        margin-bottom: 16px;
+        padding: 6px 10px;
+        background: #f5f5f5;
+        border-radius: 4px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -292,7 +313,8 @@
         background: #e0e0e0;
       }
       .save-bar .btn-save:disabled,
-      .save-bar .btn-reset:disabled {
+      .save-bar .btn-reset:disabled,
+      .save-bar .btn-clear:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }
@@ -452,7 +474,7 @@
             webkitdirectory
           />
         </label>
-        <span class="file-path" id="filePath">No file loaded</span>
+        <button class="clear-btn" id="clearBtn" disabled>Clear All</button>
       </div>
     </header>
 
@@ -461,6 +483,7 @@
       <!-- Left: Metadata Form -->
       <div class="metadata-panel" id="metadataPanel">
         <h2>Metadata</h2>
+        <div class="file-path" id="filePath">No file loaded</div>
 
         <div class="form-group">
           <label for="inputTitle">Title</label>
@@ -601,6 +624,7 @@
         const inputLongitude = $("#inputLongitude");
         const inputAltitude = $("#inputAltitude");
         const resetBtn = $("#resetBtn");
+        const clearBtn = $("#clearBtn");
         const saveBtn = $("#saveBtn");
 
         const toastEl = $("#toast");
@@ -700,6 +724,7 @@
             inputLongitude,
             addKeywordBtn,
             resetBtn,
+            clearBtn,
             saveBtn,
           ];
           fields.forEach((el) => {
@@ -971,6 +996,29 @@
           showToast("Reset to original values", "info");
         }
 
+        function clearAll() {
+          // Revoke all blob URLs to free memory
+          state.images.forEach((e) => URL.revokeObjectURL(e.blobUrl));
+          state.images = [];
+          state.currentIndex = -1;
+
+          // Reset UI
+          filePath.textContent = "No file loaded";
+          imgPreview.innerHTML = `<div class="placeholder" id="placeholder">
+            <strong>No image loaded</strong>
+            Browse for images using the buttons above
+          </div>`;
+          imgPreview.appendChild(navOverlay);
+          imgPreview.appendChild(imageCounter);
+          navOverlay.style.display = "none";
+          imageCounter.style.display = "none";
+
+          setFormEnabled(false);
+          setFormMetadata({});
+          updateMap(null, null, null);
+          showToast("Cleared all images", "info");
+        }
+
         // ── Event listeners ─────────────────────────────────────────
         fileInput.addEventListener("change", function () {
           if (this.files && this.files.length) loadFiles(this.files);
@@ -1009,6 +1057,7 @@
         });
 
         resetBtn.addEventListener("click", resetMetadata);
+        clearBtn.addEventListener("click", clearAll);
         saveBtn.addEventListener("click", saveMetadata);
 
         // ── Sync map marker when GPS inputs change ───────────────────
