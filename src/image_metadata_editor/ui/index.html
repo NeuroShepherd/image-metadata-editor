@@ -656,7 +656,8 @@
           <button class="btn-save" id="saveBtn" disabled>Save Changes</button>
         </div>
         <div class="bulk-banner" id="bulkBanner">
-          ⚡ Bulk edit mode active — changes apply to <strong>all loaded files</strong> (title excluded).
+          ⚡ Bulk edit mode active — changes apply to
+          <strong>all loaded files</strong> (title excluded).
         </div>
       </div>
 
@@ -689,18 +690,20 @@
       <div class="modal">
         <h3>⚠️ Bulk Edit Mode</h3>
         <p>
-          You are about to edit <strong id="bulkFileCount">0</strong>
-          files simultaneously. Any changes you make to the metadata
-          fields below (except <strong>Title</strong>) will be applied
-          to <strong>every</strong> loaded image when you save.
+          You are about to edit <strong id="bulkFileCount">0</strong> files
+          simultaneously. Any changes you make to the metadata fields below
+          (except <strong>Title</strong>) will be applied to
+          <strong>every</strong> loaded image when you save.
         </p>
         <p>
-          Only use this mode if you are certain all images should share
-          these values.
+          Only use this mode if you are certain all images should share these
+          values.
         </p>
         <div class="modal-actions">
           <button class="btn-cancel" id="bulkCancelBtn">Cancel</button>
-          <button class="btn-confirm" id="bulkConfirmBtn">Enter Bulk Edit</button>
+          <button class="btn-confirm" id="bulkConfirmBtn">
+            Enter Bulk Edit
+          </button>
         </div>
       </div>
     </div>
@@ -1042,7 +1045,10 @@
 
           if (added.length === 0) {
             if (skippedFiles.length) {
-              showToast("All selected files are already loaded — nothing to add", "info");
+              showToast(
+                "All selected files are already loaded — nothing to add",
+                "info",
+              );
             } else {
               showToast(
                 "Error loading images" + (loadError ? ": " + loadError : ""),
@@ -1071,9 +1077,10 @@
           showImage(state.currentIndex);
           let msg = `Added ${added.length} image(s) (${state.images.length} total)`;
           if (skippedFiles.length) {
-            const names = skippedFiles.length <= 3
-              ? skippedFiles.join(", ")
-              : `${skippedFiles.slice(0, 3).join(", ")} + ${skippedFiles.length - 3} more`;
+            const names =
+              skippedFiles.length <= 3
+                ? skippedFiles.join(", ")
+                : `${skippedFiles.slice(0, 3).join(", ")} + ${skippedFiles.length - 3} more`;
             msg += ` — ${skippedFiles.length} duplicate(s) skipped: ${names}`;
           }
           showToast(msg, "info");
@@ -1096,7 +1103,9 @@
           }
 
           const metadata = getFormMetadata();
-          const targets = state.bulkMode ? state.images : [state.images[state.currentIndex]];
+          const targets = state.bulkMode
+            ? state.images
+            : [state.images[state.currentIndex]];
           const validTargets = targets.filter(Boolean);
 
           // Helper: apply metadata to a single file and write back
@@ -1131,7 +1140,6 @@
           try {
             let saved = 0;
             for (const entry of validTargets) {
-              // In bulk mode, copy global metadata but preserve each file's title
               const perFileMeta = state.bulkMode
                 ? { ...metadata, title: entry.originalMetadata?.title ?? null }
                 : metadata;
@@ -1141,13 +1149,28 @@
                 entry.filename,
               );
               entry.originalMetadata = JSON.parse(JSON.stringify(updated));
+              // Refresh the blob URL — after writing to disk the old one may be invalidated
+              URL.revokeObjectURL(entry.blobUrl);
+              const freshFile = entry.fileHandle
+                ? await entry.fileHandle.getFile()
+                : entry.fileObj;
+              entry.blobUrl = URL.createObjectURL(freshFile);
+              entry.fileObj = freshFile;
               saved++;
             }
 
-            // Update form to show the current entry's new metadata
+            // Repair the current image preview with the fresh blob URL
             const curEntry = state.images[state.currentIndex];
-            if (curEntry) setFormMetadata(curEntry.originalMetadata);
-            showToast(`Metadata saved successfully (${saved} file${saved > 1 ? "s" : ""})`, "success");
+            if (curEntry) {
+              imgPreview
+                .querySelector("img")
+                ?.setAttribute("src", curEntry.blobUrl);
+              setFormMetadata(curEntry.originalMetadata);
+            }
+            showToast(
+              `Metadata saved successfully (${saved} file${saved > 1 ? "s" : ""})`,
+              "success",
+            );
           } catch (err) {
             showToast("Error saving: " + err.message, "error");
           }
@@ -1178,7 +1201,10 @@
           bulkEditBtn.textContent = "Exit Bulk Edit";
           bulkEditBtn.classList.add("btn-reset");
           bulkEditBtn.classList.remove("btn-bulk");
-          showToast(`Bulk edit mode — editing ${state.images.length} files`, "info");
+          showToast(
+            `Bulk edit mode — editing ${state.images.length} files`,
+            "info",
+          );
         }
 
         function exitBulkMode() {
