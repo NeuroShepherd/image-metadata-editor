@@ -461,11 +461,11 @@
     <header>
       <h1>📷 Image Metadata Editor</h1>
       <div class="file-selector">
-        <label>
-          Browse…
+        <label for="fileInput">
+          Browse Files…
           <input type="file" id="fileInput" accept="image/*" multiple />
         </label>
-        <label>
+        <label for="folderInput">
           📁 Folder…
           <input
             type="file"
@@ -862,9 +862,11 @@
         }
 
         // ── Load all selected files, fetch metadata for each ──────
+        // Each item in fileList is either a {file, handle} object (from File System Access API)
+        // or a bare File (when the API is unavailable and we fall back to <input>).
         async function loadFiles(fileList) {
-          const files = Array.from(fileList);
-          if (!files.length) return;
+          const items = Array.from(fileList);
+          if (!items.length) return;
 
           // Revoke old blob URLs
           state.images.forEach((e) => URL.revokeObjectURL(e.blobUrl));
@@ -872,8 +874,10 @@
           const newImages = [];
           let loadError = null;
 
-          for (let i = 0; i < files.length; i++) {
-            const fileObj = files[i];
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const fileObj = item.file || item; // unwrap {file, handle} or bare File
+            const fileHandle = item.handle || null; // may be null if from <input> fallback
             const filename = fileObj.webkitRelativePath || fileObj.name;
             const blobUrl = URL.createObjectURL(fileObj);
             const formData = new FormData();
@@ -890,7 +894,7 @@
                 blobUrl,
                 filename,
                 fileObj,
-                fileHandle: null,
+                fileHandle, // <-- now properly passed through
                 originalMetadata: JSON.parse(JSON.stringify(metadata)),
               });
             } catch (err) {
@@ -906,6 +910,19 @@
               "error",
             );
             return;
+          }
+
+          // Request write permission for all handles upfront (Chrome prompts once per handle)
+          const handles = newImages.map((e) => e.fileHandle).filter(Boolean);
+          if (handles.length) {
+            const results = await Promise.allSettled(
+              handles.map((h) => h.requestPermission({ mode: "readwrite" })),
+            );
+            results.forEach((r, i) => {
+              if (r.status === "fulfilled" && r.value !== "granted") {
+                newImages[i].fileHandle = null; // can't write to this one
+              }
+            });
           }
 
           state.images = newImages;
@@ -948,37 +965,30 @@
           try {
             let updated;
 
-            // Write-back via File System Access handle
+            // Write-back via File System Access handle (in-place)
+            // Permission was already requested at load time.
             if (entry.fileHandle) {
               const fileObj = await entry.fileHandle.getFile();
               const blob = await uploadApply(fileObj);
               const writable = await entry.fileHandle.createWritable();
               await writable.write(blob);
               await writable.close();
-              // Re-read
+              // Re-read from the handle after write
+              const freshFile = await entry.fileHandle.getFile();
               const fd = new FormData();
-              fd.append("file", fileObj, entry.filename);
+              fd.append("file", freshFile, entry.filename);
               const conf = await fetch("/api/metadata/upload", {
                 method: "POST",
                 body: fd,
               });
               updated = await conf.json();
             } else {
-              // Browser-picked file — download modified version
-              const blob = await uploadApply(entry.fileObj);
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = entry.filename;
-              a.click();
-              URL.revokeObjectURL(a.href);
-              // Reload metadata from the temp upload
-              const fd = new FormData();
-              fd.append("file", entry.fileObj, entry.filename);
-              const conf = await fetch("/api/metadata/upload", {
-                method: "POST",
-                body: fd,
-              });
-              updated = await conf.json();
+              // No writable handle — in-place save isn't supported in this browser
+              showToast(
+                "In-place save not supported in this browser. Use Chrome or Edge.",
+                "error",
+              );
+              return;
             }
 
             entry.originalMetadata = JSON.parse(JSON.stringify(updated));
@@ -1019,16 +1029,111 @@
           showToast("Cleared all images", "info");
         }
 
-        // ── Event listeners ─────────────────────────────────────────
-        fileInput.addEventListener("change", function () {
-          if (this.files && this.files.length) loadFiles(this.files);
-          this.value = "";
-        });
+        // ── File picking using File System Access API (in-place read/write) ──
+        async function pickFiles() {
+          try {
+            const handles = await window.showOpenFilePicker({
+              multiple: true,
+              types: [
+                {
+                  description: "Images",
+                  accept: {
+                    "image/*": [
+                      ".jpg",
+                      ".jpeg",
+                      ".png",
+                      ".tif",
+                      ".tiff",
+                      ".webp",
+                      ".heic",
+                      ".heif",
+                    ],
+                  },
+                },
+              ],
+            });
+            const items = await Promise.all(
+              handles.map(async (handle) => ({
+                file: await handle.getFile(),
+                handle,
+              })),
+            );
+            loadFiles(items);
+          } catch (err) {
+            if (err.name !== "AbortError")
+              showToast("Could not access files: " + err.message, "error");
+          }
+        }
 
-        folderInput.addEventListener("change", function () {
-          if (this.files && this.files.length) loadFiles(this.files);
-          this.value = "";
-        });
+        async function pickFolder() {
+          try {
+            const dirHandle = await window.showDirectoryPicker();
+            const items = [];
+            for await (const [name, entry] of dirHandle.entries()) {
+              if (entry.kind === "file") {
+                const ext = name.toLowerCase().split(".").pop();
+                if (
+                  [
+                    "jpg",
+                    "jpeg",
+                    "png",
+                    "tif",
+                    "tiff",
+                    "webp",
+                    "heic",
+                    "heif",
+                  ].includes(ext)
+                ) {
+                  items.push({ file: await entry.getFile(), handle: entry });
+                }
+              }
+            }
+            if (items.length) {
+              loadFiles(items);
+              return;
+            }
+            showToast("No supported images found in that folder", "error");
+          } catch (err) {
+            if (err.name !== "AbortError")
+              showToast("Could not access folder: " + err.message, "error");
+          }
+        }
+
+        // Wire the Browse/Folder labels to the async pickers
+        const browseLabel = document.querySelector("label[for=fileInput]");
+        const folderLabel = document.querySelector("label[for=folderInput]");
+
+        if (window.showOpenFilePicker) {
+          browseLabel?.addEventListener("click", function (e) {
+            e.preventDefault();
+            pickFiles();
+          });
+          fileInput.style.display = "none";
+        } else {
+          browseLabel?.addEventListener("click", function (e) {
+            e.preventDefault();
+            showToast(
+              "Your browser doesn't support in-place editing. Please use Chrome or Edge.",
+              "error",
+            );
+          });
+        }
+
+        if (window.showDirectoryPicker) {
+          folderLabel?.addEventListener("click", function (e) {
+            e.preventDefault();
+            pickFolder();
+          });
+          folderInput.style.display = "none";
+        } else {
+          folderLabel?.addEventListener("click", function (e) {
+            e.preventDefault();
+            showToast(
+              "Your browser doesn't support in-place editing. Please use Chrome or Edge.",
+              "error",
+            );
+          });
+        }
 
         prevBtn.addEventListener("click", () =>
           goToImage(state.currentIndex - 1),

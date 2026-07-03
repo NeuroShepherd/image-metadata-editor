@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+import urllib.parse
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile
@@ -138,11 +139,15 @@ async def apply_metadata(
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    # Encode the filename for Content-Disposition using RFC 5987
+    # so that non-latin-1 characters don't crash the response.
+    filename_encoded = urllib.parse.quote(file.filename or "image", safe="")
     return Response(
         content=modified_bytes,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{file.filename}"',
+            "Content-Disposition":
+                f"attachment; filename*=UTF-8''{filename_encoded}",
         },
     )
 
