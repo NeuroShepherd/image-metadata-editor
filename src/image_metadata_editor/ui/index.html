@@ -861,23 +861,21 @@
           setFormEnabled(true);
         }
 
-        // ── Load all selected files, fetch metadata for each ──────
+        // ── Append files, fetch metadata for each ────────────────
         // Each item in fileList is either a {file, handle} object (from File System Access API)
-        // or a bare File (when the API is unavailable and we fall back to <input>).
+        // or a bare File (from <input> fallback).  New items are appended to state.images
+        // without removing already-loaded images.
         async function loadFiles(fileList) {
           const items = Array.from(fileList);
           if (!items.length) return;
 
-          // Revoke old blob URLs
-          state.images.forEach((e) => URL.revokeObjectURL(e.blobUrl));
-
-          const newImages = [];
+          const added = [];
           let loadError = null;
 
           for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            const fileObj = item.file || item; // unwrap {file, handle} or bare File
-            const fileHandle = item.handle || null; // may be null if from <input> fallback
+            const fileObj = item.file || item;
+            const fileHandle = item.handle || null;
             const filename = fileObj.webkitRelativePath || fileObj.name;
             const blobUrl = URL.createObjectURL(fileObj);
             const formData = new FormData();
@@ -890,11 +888,11 @@
               });
               if (!res.ok) throw new Error(res.statusText);
               const metadata = await res.json();
-              newImages.push({
+              added.push({
                 blobUrl,
                 filename,
                 fileObj,
-                fileHandle, // <-- now properly passed through
+                fileHandle,
                 originalMetadata: JSON.parse(JSON.stringify(metadata)),
               });
             } catch (err) {
@@ -904,7 +902,7 @@
             }
           }
 
-          if (newImages.length === 0) {
+          if (added.length === 0) {
             showToast(
               "Error loading images" + (loadError ? ": " + loadError : ""),
               "error",
@@ -912,23 +910,27 @@
             return;
           }
 
-          // Request write permission for all handles upfront (Chrome prompts once per handle)
-          const handles = newImages.map((e) => e.fileHandle).filter(Boolean);
+          // Request write permission for new handles
+          const handles = added.map((e) => e.fileHandle).filter(Boolean);
           if (handles.length) {
             const results = await Promise.allSettled(
               handles.map((h) => h.requestPermission({ mode: "readwrite" })),
             );
             results.forEach((r, i) => {
               if (r.status === "fulfilled" && r.value !== "granted") {
-                newImages[i].fileHandle = null; // can't write to this one
+                added[i].fileHandle = null;
               }
             });
           }
 
-          state.images = newImages;
-          state.currentIndex = 0;
-          showImage(0);
-          showToast(`Loaded ${newImages.length} image(s)`, "info");
+          const prevCount = state.images.length;
+          state.images.push(...added);
+          state.currentIndex = prevCount; // jump to first newly added image
+          showImage(state.currentIndex);
+          showToast(
+            `Added ${added.length} image(s) (${state.images.length} total)`,
+            "info",
+          );
           if (loadError)
             showToast("Some images failed to load: " + loadError, "error");
         }
