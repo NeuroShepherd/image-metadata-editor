@@ -983,12 +983,28 @@
               method: "POST",
             });
             if (!res.ok) throw new Error(res.statusText);
-            const paths = await res.json();
-            if (!paths.length) return; // user cancelled
+            const dialogPaths = await res.json();
+            if (!dialogPaths.length) return; // user cancelled
+
+            let filePaths = [];
+            if (mode === "folder") {
+              // Folder dialog returns a single directory path — list its contents
+              const dirPath = dialogPaths[0];
+              const dirRes = await fetch(
+                `/api/images?dir=${encodeURIComponent(dirPath)}`,
+              );
+              if (dirRes.ok) filePaths = await dirRes.json();
+              if (!filePaths.length) {
+                showToast("No supported images found in that folder", "error");
+                return;
+              }
+            } else {
+              filePaths = dialogPaths;
+            }
 
             const entries = [];
             const existing = new Set(state.images.map((e) => e.filename));
-            for (const p of paths) {
+            for (const p of filePaths) {
               if (existing.has(p)) continue;
               existing.add(p);
               try {

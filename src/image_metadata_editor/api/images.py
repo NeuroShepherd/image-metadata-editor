@@ -49,21 +49,31 @@ def open_file_dialog(mode: str = Query("files", enum=["files", "folder"])):
 
 def _dialog_macos(mode: str) -> list[str]:
     """Open a native macOS file dialog via osascript and return POSIX paths."""
-    mode_flag = "folder" if mode == "folder" else "file"
-    script = f'''
-        tell application "Finder" to activate
-        try
-            set thePaths to choose {mode_flag} with prompt "Select {'a folder' if mode == 'folder' else 'images'}" {"with multiple selections allowed" if mode == "files" else ""}
-            set resultPaths to {{}}
-            repeat with f in thePaths
-                set end of resultPaths to quoted form of POSIX path of f
-            end repeat
-            set AppleScript's text item delimiters to linefeed
-            return resultPaths as text
-        on error
-            return "CANCELLED"
-        end try
-    '''
+    if mode == "folder":
+        script = '''
+            tell application "Finder" to activate
+            try
+                set theFolder to choose folder with prompt "Select a folder of images"
+                return quoted form of POSIX path of theFolder
+            on error
+                return "CANCELLED"
+            end try
+        '''
+    else:
+        script = '''
+            tell application "Finder" to activate
+            try
+                set theFiles to choose file with prompt "Select images" with multiple selections allowed
+                set resultPaths to {}
+                repeat with f in theFiles
+                    set end of resultPaths to quoted form of POSIX path of f
+                end repeat
+                set AppleScript's text item delimiters to linefeed
+                return resultPaths as text
+            on error
+                return "CANCELLED"
+            end try
+        '''
     result = subprocess.run(
         ["osascript", "-e", script],
         capture_output=True, text=True, timeout=120,
