@@ -201,7 +201,22 @@ def _write_exif_dict(path: Path, exif_dict: dict) -> None:
     pixel data is untouched).  All other formats use Pillow's ``save()``
     with the ``exif`` parameter, which re-encodes the image.
     """
-    exif_bytes = piexif.dump(exif_dict)
+    # piexif.dump may fail on MakerNote tags with non-standard types.
+    # Retry, stripping only the offending tag.
+    import re
+    while True:
+        try:
+            exif_bytes = piexif.dump(exif_dict)
+            break
+        except ValueError as exc:
+            m = re.search(r"(\d+) in (\w+) IFD", str(exc))
+            if m:
+                tag_id = int(m.group(1))
+                ifd = m.group(2)
+                if ifd in exif_dict:
+                    exif_dict[ifd].pop(tag_id, None)
+            else:
+                raise
 
     ext = path.suffix.lower()
     if ext in (".jpg", ".jpeg"):
