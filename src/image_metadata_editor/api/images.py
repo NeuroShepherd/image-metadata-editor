@@ -1,17 +1,21 @@
 """Image endpoints — list images in a directory and serve image files."""
 
+import io
 import platform
 import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 
 _SUPPORTED_EXTENSIONS: set[str] = {
     ".jpg",".jpeg",".png",".tif",".tiff",".webp",".heic",".heif",
 }
+
+# Formats that browsers can't render natively — convert to PNG for preview
+_NON_WEB_FORMATS: set[str] = {".tif", ".tiff", ".heic", ".heif"}
 
 
 @router.post("/dialog")
@@ -104,16 +108,29 @@ def list_images(dir: str | None = Query(None, description="Directory to scan for
 
 @router.get("/serve")
 def serve_image(path: str = Query(..., description="Absolute path to the image file")):
-    """Serve an image file for preview by its filesystem path."""
+    """Serve an image file for preview by its filesystem path.
+
+    TIFF and HEIC are converted to PNG on the fly since browsers
+    can't render them natively (except Safari for TIFF).
+    """
     if not path:
         raise HTTPException(status_code=400, detail="No path provided")
     safe_path = Path(path).expanduser().resolve()
     if not safe_path.exists():
         raise HTTPException(status_code=404, detail="Image not found")
-    # Basic sanity — refuse to serve non-image files
     if safe_path.suffix.lower() not in _SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported image format: {safe_path.suffix}",
         )
+
+    ext = safe_path.suffix.lower()
+    if ext in _NON_WEB_FORMATS:
+        from PIL import Image
+        with Image.open(safe_path) as img:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            buf.seek(0)
+        return Response(content=buf.read(), media_type="image/png")
+
     return FileResponse(safe_path)
